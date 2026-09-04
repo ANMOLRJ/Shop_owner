@@ -66,6 +66,25 @@ textarea{min-height:100px;resize:vertical}
   <button id="logoutBtn" class="secondary small-btn">Logout</button>
 </div>
 
+<section id="loginScreen" class="screen active">
+  <div class="login-wrap">
+    <div class="card login-card">
+      <div class="step">Shop Owner</div>
+      <h1 style="margin:6px 0 4px">🏪 Shop Owner Login</h1>
+      <p class="muted">Login with your email or mobile number. A shop profile and unique Shop ID will be created automatically for a new owner.</p>
+
+      <div class="field"><label>Name</label><input id="loginName" autocomplete="name" placeholder="Your name"></div>
+      <div class="field"><label>Email</label><input id="loginEmail" type="email" autocomplete="email" placeholder="owner@example.com"></div>
+      <div class="field"><label>Mobile Number</label><input id="loginPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="9876543210"></div>
+      <div class="field"><label>Shop Name</label><input id="loginShopName" autocomplete="organization" placeholder="My Shop"></div>
+
+      <button class="btn primary" id="loginBtn">🔐 Login / Create Shop</button>
+      <div class="status" id="loginStatus" style="margin-top:10px">Enter your email or mobile number to continue.</div>
+      <p class="muted small" style="margin-top:10px">Prototype login: this version identifies the owner by email/mobile; it does not send an SMS OTP.</p>
+    </div>
+  </div>
+</section>
+
 <div class="app">
 <header>
 <h1>📦 Smart Product Scanner</h1>
@@ -281,7 +300,7 @@ document.addEventListener("DOMContentLoaded",()=>{
  document.getElementById("dashRefresh")?.addEventListener("click",loadDashboard);
  if(getAuth())showApp();else showLogin();
 });
-const API_URL="https://script.google.com/macros/s/AKfycbzZbzHKyYdPA4ifd2VI2Hi-0UilYZXrncGBo5sSrN1MS0r1dWMSEDDNME6gIXxTMQH1KA/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
 
 const home=document.getElementById("home");
 const barcodeScanner=document.getElementById("barcodeScanner");
