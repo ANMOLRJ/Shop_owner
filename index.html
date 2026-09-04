@@ -56,6 +56,28 @@ textarea{min-height:100px;resize:vertical}
 @media(max-width:430px){.dashboard-actions{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}}
 </style>
 
+<!-- Firebase Phone Authentication -->
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<script>
+// IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
+const firebaseConfig = {
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_FIREBASE_APP_ID"
+};
+let firebaseReady = false;
+try {
+  if (!firebaseConfig.apiKey.startsWith("YOUR_")) {
+    firebase.initializeApp(firebaseConfig);
+    firebase.auth().languageCode = "en";
+    firebaseReady = true;
+  }
+} catch(e) { console.error("Firebase initialization failed", e); }
+</script>
 <!-- Free/open-source browser OCR: Tesseract.js -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
@@ -69,18 +91,32 @@ textarea{min-height:100px;resize:vertical}
 <section id="loginScreen" class="screen active">
   <div class="login-wrap">
     <div class="card login-card">
-      <div class="step">Shop Owner</div>
+      <div class="step">Secure Shop Owner Login</div>
       <h1 style="margin:6px 0 4px">🏪 Shop Owner Login</h1>
-      <p class="muted">Login with your email or mobile number. A shop profile and unique Shop ID will be created automatically for a new owner.</p>
+      <p class="muted">Verify your mobile number with a real SMS OTP. New owners can create their shop after verification.</p>
 
-      <div class="field"><label>Name</label><input id="loginName" autocomplete="name" placeholder="Your name"></div>
-      <div class="field"><label>Email</label><input id="loginEmail" type="email" autocomplete="email" placeholder="owner@example.com"></div>
-      <div class="field"><label>Mobile Number</label><input id="loginPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="9876543210"></div>
-      <div class="field"><label>Shop Name</label><input id="loginShopName" autocomplete="organization" placeholder="My Shop"></div>
+      <div id="phoneStep">
+        <div class="field"><label>Mobile Number</label><input id="loginPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="9876543210"></div>
+        <div id="recaptcha-container" style="margin:10px 0"></div>
+        <button class="btn primary" id="sendOtpBtn">📲 Send OTP</button>
+      </div>
 
-      <button class="btn primary" id="loginBtn">🔐 Login / Create Shop</button>
-      <div class="status" id="loginStatus" style="margin-top:10px">Enter your email or mobile number to continue.</div>
-      <p class="muted small" style="margin-top:10px">Prototype login: this version identifies the owner by email/mobile; it does not send an SMS OTP.</p>
+      <div id="otpStep" class="hidden">
+        <div class="field"><label>6-digit OTP</label><input id="otpCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
+        <button class="btn primary" id="verifyOtpBtn">✅ Verify OTP</button>
+        <button class="btn" id="changePhoneBtn" style="margin-top:8px">← Change Number</button>
+      </div>
+
+      <div id="profileStep" class="hidden">
+        <div class="status ok" style="margin-bottom:10px">✓ Mobile number verified</div>
+        <div class="field"><label>Owner Name</label><input id="loginName" autocomplete="name" placeholder="Your name"></div>
+        <div class="field"><label>Email (optional)</label><input id="loginEmail" type="email" autocomplete="email" placeholder="owner@example.com"></div>
+        <div class="field"><label>Shop Name</label><input id="loginShopName" autocomplete="organization" placeholder="My Shop"></div>
+        <button class="btn primary" id="finishLoginBtn">🏪 Continue to Shop</button>
+      </div>
+
+      <div class="status" id="loginStatus" style="margin-top:10px">Enter your mobile number to receive an OTP.</div>
+      <p class="muted small" style="margin-top:10px">SMS OTP is handled by Firebase Authentication. Standard SMS charges/limits may apply.</p>
     </div>
   </div>
 </section>
@@ -191,17 +227,15 @@ textarea{min-height:100px;resize:vertical}
 
 <script>
 
-const AUTH_KEY="barcodeScannerShopAuthV7";
+const AUTH_KEY="barcodeScannerShopAuthV8";
+let confirmationResult=null;
+let recaptchaVerifier=null;
 function getAuth(){try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}}
 function setAuth(u){localStorage.setItem(AUTH_KEY,JSON.stringify(u))}
 function clearAuth(){localStorage.removeItem(AUTH_KEY)}
 function showLogin(){
  document.getElementById("loginScreen").classList.add("active");
- document.getElementById("home").classList.add("hidden");
- document.getElementById("dashboard").classList.add("hidden");
- document.getElementById("productListCard").classList.add("hidden");
- document.getElementById("recentCard").classList.add("hidden");
- document.getElementById("shopBar").classList.add("hidden");
+ ["home","dashboard","productListCard","recentCard","shopBar"].forEach(id=>document.getElementById(id)?.classList.add("hidden"));
 }
 function showApp(){
  const a=getAuth(); if(!a){showLogin();return false}
@@ -213,25 +247,77 @@ function showApp(){
  document.getElementById("dashboard").classList.remove("hidden");
  document.getElementById("productListCard").classList.remove("hidden");
  document.getElementById("recentCard").classList.remove("hidden");
- loadDashboard();
- return true;
+ loadDashboard(); return true;
 }
-async function doShopLogin(){
- const email=document.getElementById("loginEmail").value.trim().toLowerCase();
- const phone=document.getElementById("loginPhone").value.trim();
- const name=document.getElementById("loginName").value.trim();
- const shopName=document.getElementById("loginShopName").value.trim();
- const st=document.getElementById("loginStatus");
- if(!email&&!phone){st.textContent="Enter email or mobile number.";return}
- st.textContent="Logging in…";document.getElementById("loginBtn").disabled=true;
+function normalizePhoneInput(v){
+ let p=String(v||"").replace(/[^0-9+]/g,"");
+ if(p.startsWith("0"))p="+91"+p.slice(1); else if(!p.startsWith("+"))p="+91"+p;
+ return p;
+}
+function setLoginStatus(msg,kind=""){const st=document.getElementById("loginStatus");st.textContent=msg;st.className="status "+kind;}
+function initRecaptcha(){
+ if(!firebaseReady) throw new Error("Firebase is not configured. Open index.html and add your Firebase Web App config.");
+ if(recaptchaVerifier){try{recaptchaVerifier.clear()}catch(e){}}
+ recaptchaVerifier=new firebase.auth.RecaptchaVerifier("recaptcha-container",{size:"normal",callback:function(){}});
+ recaptchaVerifier.render();
+}
+async function sendOtp(){
+ const phone=normalizePhoneInput(document.getElementById("loginPhone").value);
+ if(!/^\+91[6-9]\d{9}$/.test(phone)){setLoginStatus("Enter a valid Indian mobile number, e.g. 9876543210.","bad");return}
+ if(!firebaseReady){setLoginStatus("Firebase is not configured yet. Add the Firebase Web App config in index.html.","bad");return}
+ const btn=document.getElementById("sendOtpBtn");btn.disabled=true;setLoginStatus("Sending OTP…");
  try{
-  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
-   body:JSON.stringify({action:"login",email,phone,name,shopName})});
-  const d=await r.json();if(!d.ok)throw new Error(d.error||"Login failed");
-  setAuth(d.user);st.textContent="Login successful. "+d.user.shopName;
-  showApp();
- }catch(e){st.textContent="Login error: "+e.message}
- finally{document.getElementById("loginBtn").disabled=false}
+  if(!recaptchaVerifier)initRecaptcha();
+  confirmationResult=await firebase.auth().signInWithPhoneNumber(phone,recaptchaVerifier);
+  document.getElementById("phoneStep").classList.add("hidden");
+  document.getElementById("otpStep").classList.remove("hidden");
+  setLoginStatus("OTP sent to "+phone+". Enter the 6-digit code.","ok");
+  document.getElementById("otpCode").focus();
+ }catch(e){
+  console.error(e);setLoginStatus("Could not send OTP: "+(e.message||e),"bad");
+  try{if(recaptchaVerifier)recaptchaVerifier.clear();}catch(x){} recaptchaVerifier=null;
+ }finally{btn.disabled=false}
+}
+async function verifyOtp(){
+ const code=document.getElementById("otpCode").value.trim();
+ if(!confirmationResult){setLoginStatus("Please request a new OTP.","bad");return}
+ if(!/^\d{6}$/.test(code)){setLoginStatus("Enter the 6-digit OTP.","bad");return}
+ const btn=document.getElementById("verifyOtpBtn");btn.disabled=true;setLoginStatus("Verifying OTP…");
+ try{
+  const result=await confirmationResult.confirm(code);
+  const user=result.user;
+  window.verifiedFirebaseUser=user;
+  document.getElementById("phoneStep").classList.add("hidden");
+  document.getElementById("otpStep").classList.add("hidden");
+  document.getElementById("profileStep").classList.remove("hidden");
+  setLoginStatus("Mobile verified. Complete your shop details.","ok");
+ }catch(e){setLoginStatus("Invalid OTP or verification failed: "+(e.message||e),"bad");}
+ finally{btn.disabled=false}
+}
+async function finishLogin(){
+ const user=window.verifiedFirebaseUser || firebase.auth().currentUser;
+ if(!user){setLoginStatus("Please verify your mobile number first.","bad");return}
+ const name=document.getElementById("loginName").value.trim();
+ const email=document.getElementById("loginEmail").value.trim().toLowerCase();
+ const shopName=document.getElementById("loginShopName").value.trim();
+ if(!name||!shopName){setLoginStatus("Enter owner name and shop name.","bad");return}
+ const btn=document.getElementById("finishLoginBtn");btn.disabled=true;setLoginStatus("Opening your shop…");
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({
+   action:"loginFirebase",firebaseUid:user.uid,phone:user.phoneNumber,email,name,shopName
+  })});
+  const d=await r.json(); if(!d.ok)throw new Error(d.error||"Login failed");
+  setAuth(d.user);setLoginStatus("Login successful.","ok");showApp();
+ }catch(e){setLoginStatus("Login error: "+e.message,"bad")}
+ finally{btn.disabled=false}
+}
+function resetLogin(){
+ confirmationResult=null;window.verifiedFirebaseUser=null;
+ document.getElementById("phoneStep").classList.remove("hidden");
+ document.getElementById("otpStep").classList.add("hidden");
+ document.getElementById("profileStep").classList.add("hidden");
+ document.getElementById("otpCode").value="";setLoginStatus("Enter your mobile number to receive an OTP.");
+ try{if(recaptchaVerifier)recaptchaVerifier.clear()}catch(e){}recaptchaVerifier=null;
 }
 async function loadDashboard(){
  const a=getAuth();if(!a)return;
@@ -289,8 +375,11 @@ async function sellProduct(encoded){
 }
 function requireAuth(){return !!getAuth()&&showApp()}
 document.addEventListener("DOMContentLoaded",()=>{
- document.getElementById("loginBtn")?.addEventListener("click",doShopLogin);
- document.getElementById("logoutBtn")?.addEventListener("click",()=>{clearAuth();location.reload()});
+ document.getElementById("sendOtpBtn")?.addEventListener("click",sendOtp);
+ document.getElementById("verifyOtpBtn")?.addEventListener("click",verifyOtp);
+ document.getElementById("finishLoginBtn")?.addEventListener("click",finishLogin);
+ document.getElementById("changePhoneBtn")?.addEventListener("click",resetLogin);
+ document.getElementById("logoutBtn")?.addEventListener("click",async()=>{clearAuth();try{await firebase.auth().signOut()}catch(e){}location.reload()});
  document.getElementById("dashScan")?.addEventListener("click",()=>{
    document.getElementById("dashboard").classList.add("hidden");
    document.getElementById("productListCard").classList.add("hidden");
@@ -300,7 +389,9 @@ document.addEventListener("DOMContentLoaded",()=>{
  document.getElementById("dashRefresh")?.addEventListener("click",loadDashboard);
  if(getAuth())showApp();else showLogin();
 });
-const API_URL="https://script.google.com/macros/s/AKfycbw-oP0Rbs6Sf1n8oOCR4TM4_ETvNJxT9TCcla8M4ILm2uJ0qQIGi3BoghMmREAFxNYkuA/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
+
+if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
 
 const home=document.getElementById("home");
 const barcodeScanner=document.getElementById("barcodeScanner");
@@ -315,7 +406,7 @@ const captureCanvas=document.getElementById("captureCanvas");
 
 let barcodeStream=null,detailStream=null,detector=null,barcodeTimer=null;
 let currentBarcode="",barcodeSource="camera",detailsSource="ocr",ocrText="";
-let history=JSON.parse(localStorage.getItem("barcodeHistoryV6")||"[]");
+let history=JSON.parse(localStorage.getItem("barcodeHistoryV8")||"[]");
 
 function hideAll(){
  [barcodeScanner,detailScanner,manualCard,product,ocrProgress].forEach(x=>x.classList.add("hidden"));
@@ -700,7 +791,7 @@ async function save(){
  try{
   await fetch(API_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
   history.unshift({barcode:payload.barcode,name:payload.name,mrp:payload.mrp,mfd:payload.manufacturingDate,exp:payload.exp,time:new Date().toLocaleString()});
-  history=history.slice(0,10);localStorage.setItem("barcodeHistoryV6",JSON.stringify(history));renderHistory();
+  history=history.slice(0,10);localStorage.setItem("barcodeHistoryV8",JSON.stringify(history));renderHistory();
   loadDashboard();
   st.textContent="Saved to your shop.";st.className="status ok";st.classList.remove("hidden");
  }catch(e){
