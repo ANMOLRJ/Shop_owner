@@ -40,6 +40,20 @@ textarea{min-height:100px;resize:vertical}
 .small-btn{padding:7px 11px!important;font-size:12px!important}
 .login-card{max-width:520px;margin:30px auto}
 .hidden{display:none!important}
+
+.screen{display:none}.screen.active{display:block}
+#loginScreen{min-height:100vh;padding:30px 16px;background:#f4f6fa}
+.login-wrap{max-width:580px;margin:auto}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:#fff;border-radius:16px;padding:15px;box-shadow:0 5px 18px rgba(20,30,50,.07)}
+.stat b{display:block;font-size:24px;margin-top:3px}
+.dashboard-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.product-row{border-top:1px solid #edf0f4;padding:13px 0}
+.product-row:first-child{border-top:0}
+.row-actions{display:flex;gap:7px;margin-top:9px}
+.row-actions button{flex:1}
+.top-user{font-size:13px;color:#697386;margin-top:5px}
+@media(max-width:430px){.dashboard-actions{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}}
 </style>
 
 <!-- Free/open-source browser OCR: Tesseract.js -->
@@ -58,7 +72,31 @@ textarea{min-height:100px;resize:vertical}
 <div class="sub">Barcode scan + improved free OCR for MRP, MFD and EXP.</div>
 </header>
 
-<section class="card" id="home">
+
+<section class="card hidden" id="dashboard">
+  <div class="step">Shop Dashboard</div>
+  <h2 id="dashTitle" style="margin:4px 0">My Shop</h2>
+  <div class="top-user" id="dashOwner"></div>
+  <div style="height:12px"></div>
+  <div class="stat-grid">
+    <div class="stat"><span class="muted small">Products</span><b id="statProducts">0</b></div>
+    <div class="stat"><span class="muted small">Sales</span><b id="statSales">0</b></div>
+    <div class="stat"><span class="muted small">Units Sold</span><b id="statUnits">0</b></div>
+    <div class="stat"><span class="muted small">Sales Amount</span><b id="statAmount">₹0</b></div>
+  </div>
+  <div style="height:12px"></div>
+  <div class="dashboard-actions">
+    <button class="btn primary" id="dashScan">📷 Add Product by Scan</button>
+    <button class="btn" id="dashRefresh">🔄 Refresh Products</button>
+  </div>
+</section>
+
+<section class="card hidden" id="productListCard">
+  <strong>My Shop Products</strong>
+  <div class="muted small" style="margin:4px 0 8px">Only products belonging to the logged-in shop are shown here.</div>
+  <div id="productList"></div>
+</section>
+<section class="card hidden" id="home">
 <button class="btn primary" id="start">📷 Start Scanning</button>
 <p class="muted small">Step 1 scans the barcode. Step 2 opens the camera again and uses enhanced Tesseract OCR with image preprocessing and multiple OCR passes to read package text.</p>
 <div style="height:9px"></div>
@@ -123,98 +161,127 @@ textarea{min-height:100px;resize:vertical}
 <button class="btn primary" id="save">💾 Save to Google Sheet</button>
 <div style="height:9px"></div>
 <button class="btn" id="scanAgain">📷 Scan Another Product</button>
+<button class="btn" id="backDashboard">🏪 Back to Dashboard</button>
 <div class="status hidden" id="saveStatus"></div>
 </section>
 
-<section class="card"><strong>Recent scans</strong><div id="history" style="margin-top:8px"></div></section>
+<section class="card hidden" id="recentCard"><strong>Recent scans</strong><div id="history" style="margin-top:8px"></div></section>
 </div>
 
 <canvas id="captureCanvas" class="hidden"></canvas>
 
 <script>
-const AUTH_KEY = "barcodeScannerShopAuthV6";
 
-function getAuth(){
-  try { return JSON.parse(localStorage.getItem(AUTH_KEY) || "null"); }
-  catch(e){ return null; }
-}
-function setAuth(user){
-  localStorage.setItem(AUTH_KEY, JSON.stringify(user));
-}
-function clearAuth(){
-  localStorage.removeItem(AUTH_KEY);
-}
+const AUTH_KEY="barcodeScannerShopAuthV7";
+function getAuth(){try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}}
+function setAuth(u){localStorage.setItem(AUTH_KEY,JSON.stringify(u))}
+function clearAuth(){localStorage.removeItem(AUTH_KEY)}
 function showLogin(){
-  document.querySelectorAll(".screen").forEach(x=>x.classList.remove("active"));
-  const el=document.getElementById("loginScreen");
-  if(el)el.classList.add("active");
-  document.getElementById("shopBar")?.classList.add("hidden");
+ document.getElementById("loginScreen").classList.add("active");
+ document.getElementById("home").classList.add("hidden");
+ document.getElementById("dashboard").classList.add("hidden");
+ document.getElementById("productListCard").classList.add("hidden");
+ document.getElementById("recentCard").classList.add("hidden");
+ document.getElementById("shopBar").classList.add("hidden");
 }
-function showShopApp(){
-  document.getElementById("shopBar")?.classList.remove("hidden");
-  const a=getAuth();
-  if(a){
-    document.getElementById("currentShopName").textContent=a.shopName || "Shop";
-    document.getElementById("currentShopId").textContent=a.shopId || "";
-  }
+function showApp(){
+ const a=getAuth(); if(!a){showLogin();return false}
+ document.getElementById("loginScreen").classList.remove("active");
+ document.getElementById("shopBar").classList.remove("hidden");
+ document.getElementById("currentShopName").textContent=a.shopName||"Shop";
+ document.getElementById("currentShopId").textContent=a.shopId||"";
+ document.getElementById("home").classList.add("hidden");
+ document.getElementById("dashboard").classList.remove("hidden");
+ document.getElementById("productListCard").classList.remove("hidden");
+ document.getElementById("recentCard").classList.remove("hidden");
+ loadDashboard();
+ return true;
 }
-function requireAuth(){
-  const a=getAuth();
-  if(!a){ showLogin(); return false; }
-  showShopApp();
-  return true;
-}
-
 async function doShopLogin(){
-  const email=document.getElementById("loginEmail").value.trim().toLowerCase();
-  const phone=document.getElementById("loginPhone").value.trim();
-  const name=document.getElementById("loginName").value.trim();
-  const shopName=document.getElementById("loginShopName").value.trim();
-  const status=document.getElementById("loginStatus");
-
-  if(!email && !phone){
-    status.textContent="Enter an email or mobile number.";
-    return;
-  }
-
-  status.textContent="Logging in…";
-  document.getElementById("loginBtn").disabled=true;
-
-  try{
-    const res=await fetch(API_URL,{
-      method:"POST",
-      headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({
-        action:"login",email:email,phone:phone,name:name,shopName:shopName
-      })
-    });
-    const data=await res.json();
-    if(!data.ok) throw new Error(data.error || "Login failed.");
-
-    setAuth(data.user);
-    status.textContent="Login successful.";
-    showShopApp();
-    document.getElementById("loginScreen").classList.remove("active");
-    document.getElementById("home").classList.add("active");
-  }catch(e){
-    status.textContent="Login error: "+e.message;
-  }finally{
-    document.getElementById("loginBtn").disabled=false;
-  }
+ const email=document.getElementById("loginEmail").value.trim().toLowerCase();
+ const phone=document.getElementById("loginPhone").value.trim();
+ const name=document.getElementById("loginName").value.trim();
+ const shopName=document.getElementById("loginShopName").value.trim();
+ const st=document.getElementById("loginStatus");
+ if(!email&&!phone){st.textContent="Enter email or mobile number.";return}
+ st.textContent="Logging in…";document.getElementById("loginBtn").disabled=true;
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"login",email,phone,name,shopName})});
+  const d=await r.json();if(!d.ok)throw new Error(d.error||"Login failed");
+  setAuth(d.user);st.textContent="Login successful. "+d.user.shopName;
+  showApp();
+ }catch(e){st.textContent="Login error: "+e.message}
+ finally{document.getElementById("loginBtn").disabled=false}
 }
-
+async function loadDashboard(){
+ const a=getAuth();if(!a)return;
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"dashboard",shopId:a.shopId})});
+  const d=await r.json();if(!d.ok)throw new Error(d.error||"Dashboard failed");
+  document.getElementById("dashTitle").textContent=a.shopName||"My Shop";
+  document.getElementById("dashOwner").textContent=(a.name||"Owner")+" · "+(a.email||a.phone||"");
+  document.getElementById("statProducts").textContent=d.stats.products;
+  document.getElementById("statSales").textContent=d.stats.salesCount;
+  document.getElementById("statUnits").textContent=d.stats.salesUnits;
+  document.getElementById("statAmount").textContent="₹"+Number(d.stats.salesAmount||0).toFixed(2);
+  renderProducts(d.products||[]);
+ }catch(e){
+  document.getElementById("productList").innerHTML='<div class="status bad">Dashboard error: '+esc(e.message)+'</div>';
+ }
+}
+function renderProducts(items){
+ const el=document.getElementById("productList");
+ if(!items.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products in this shop yet. Use Add Product by Scan.</div>';return}
+ el.innerHTML=items.map(p=>`
+ <div class="product-row">
+  <strong>${esc(p.name||"Unnamed product")}</strong>
+  <div class="muted small">${esc(p.barcode)} · Stock: <b>${p.quantity}</b></div>
+  <div>${p.mrp?"MRP ₹"+esc(p.mrp):""}${p.sellingPrice?" · Sell ₹"+esc(p.sellingPrice):""}</div>
+  <div class="muted small">${p.mfd?"MFD "+esc(p.mfd):""}${p.exp?" · EXP "+esc(p.exp):""}</div>
+  <div class="row-actions">
+   <button class="btn" onclick="sellProduct('${encodeURIComponent(p.barcode)}')">🧾 Sell 1</button>
+   <button class="btn" onclick="deleteProduct('${encodeURIComponent(p.barcode)}')">🗑️ Delete</button>
+  </div>
+ </div>`).join("");
+}
+async function deleteProduct(encoded){
+ const barcode=decodeURIComponent(encoded);const a=getAuth();
+ if(!confirm("Delete "+barcode+" from "+a.shopName+"?"))return;
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"deleteProduct",shopId:a.shopId,barcode})});
+  const d=await r.json();if(!d.ok)throw new Error(d.error||"Delete failed");
+  loadDashboard();
+ }catch(e){alert(e.message)}
+}
+async function sellProduct(encoded){
+ const barcode=decodeURIComponent(encoded),a=getAuth();
+ const q=prompt("Quantity to sell","1");if(q===null)return;
+ const qty=Math.max(1,Number(q)||1);
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"recordSale",shopId:a.shopId,shopName:a.shopName,userId:a.userId,barcode,quantity:qty})});
+  const d=await r.json();if(!d.ok)throw new Error(d.error||"Sale failed");
+  alert("Sale recorded. Total: ₹"+Number(d.total||0).toFixed(2));
+  loadDashboard();
+ }catch(e){alert(e.message)}
+}
+function requireAuth(){return !!getAuth()&&showApp()}
 document.addEventListener("DOMContentLoaded",()=>{
-  document.getElementById("loginBtn")?.addEventListener("click",doShopLogin);
-  document.getElementById("logoutBtn")?.addEventListener("click",()=>{
-    clearAuth();
-    location.reload();
-  });
-
-  if(getAuth()) showShopApp();
-  else showLogin();
+ document.getElementById("loginBtn")?.addEventListener("click",doShopLogin);
+ document.getElementById("logoutBtn")?.addEventListener("click",()=>{clearAuth();location.reload()});
+ document.getElementById("dashScan")?.addEventListener("click",()=>{
+   document.getElementById("dashboard").classList.add("hidden");
+   document.getElementById("productListCard").classList.add("hidden");
+   document.getElementById("home").classList.remove("hidden");
+   document.getElementById("start").click();
+ });
+ document.getElementById("dashRefresh")?.addEventListener("click",loadDashboard);
+ if(getAuth())showApp();else showLogin();
 });
-
-const API_URL="https://script.google.com/macros/s/AKfycbzZbzHKyYdPA4ifd2VI2Hi-0UilYZXrncGBo5sSrN1MS0r1dWMSEDDNME6gIXxTMQH1KA/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
 
 const home=document.getElementById("home");
 const barcodeScanner=document.getElementById("barcodeScanner");
@@ -252,7 +319,6 @@ function setStatus(id,text,ok){
 }
 
 async function startBarcodeCamera(){
- if(!requireAuth())return;
  if(!navigator.mediaDevices?.getUserMedia){
    setStatus("barcodeStatus","Camera unavailable. Use an HTTPS website.",false);return;
  }
@@ -602,7 +668,9 @@ async function lookupProduct(code){
 function val(id){return document.getElementById(id).value.trim()}
 async function save(){
  const st=document.getElementById("saveStatus"),btn=document.getElementById("save");
+ const a=getAuth(); if(!a){showLogin();return}
  const payload={
+  action:"saveProduct",shopId:a.shopId,shopName:a.shopName,userId:a.userId,
   barcode:currentBarcode,name:val("name"),brand:val("brand"),category:val("category"),
   mrp:val("mrp"),sellingPrice:val("sellingPrice"),manufacturingDate:val("mfd"),
   expiryDate:val("exp"),quantity:Math.max(1,Number(val("qty")||1)),
@@ -614,7 +682,8 @@ async function save(){
   await fetch(API_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
   history.unshift({barcode:payload.barcode,name:payload.name,mrp:payload.mrp,mfd:payload.manufacturingDate,exp:payload.exp,time:new Date().toLocaleString()});
   history=history.slice(0,10);localStorage.setItem("barcodeHistoryV6",JSON.stringify(history));renderHistory();
-  st.textContent="Saved to Google Sheet.";st.className="status ok";st.classList.remove("hidden");
+  loadDashboard();
+  st.textContent="Saved to your shop.";st.className="status ok";st.classList.remove("hidden");
  }catch(e){
   st.textContent="Save failed: "+e.message;st.className="status bad";st.classList.remove("hidden");
  }finally{btn.disabled=false;btn.textContent="💾 Save to Google Sheet"}
@@ -642,7 +711,15 @@ document.getElementById("continueManual").onclick=async()=>{
 document.getElementById("barcodeInput").onkeydown=e=>{if(e.key==="Enter")document.getElementById("continueManual").click()};
 document.getElementById("skipDetails").onclick=()=>{stopDetailCamera();detailsSource="manual";ocrText="";openProduct()};
 document.getElementById("save").onclick=save;
-document.getElementById("scanAgain").onclick=async()=>{stopAll();hideAll();barcodeScanner.classList.remove("hidden");currentBarcode="";ocrText="";await startBarcodeCamera()};
+document.getElementById("backDashboard").onclick=()=>{
+ stopAll();hideAll();document.getElementById("dashboard").classList.remove("hidden");
+ document.getElementById("productListCard").classList.remove("hidden");loadDashboard();
+};
+document.getElementById("scanAgain").onclick=async()=>{
+ stopAll();hideAll();document.getElementById("dashboard").classList.add("hidden");
+ document.getElementById("productListCard").classList.add("hidden");
+ barcodeScanner.classList.remove("hidden");currentBarcode="";ocrText="";await startBarcodeCamera()
+};
 addEventListener("beforeunload",stopAll);
 renderHistory();
 </script>
