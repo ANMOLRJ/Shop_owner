@@ -62,12 +62,12 @@ textarea{min-height:100px;resize:vertical}
 <script>
 // IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
 const firebaseConfig = {
-  apiKey: "AIzaSyCYvDltf4-692M3c9aj31Gs8u9PtcCFJmw",
-  authDomain: "shopownwer.firebaseapp.com",
-  projectId: "shopownwer",
-  storageBucket: "shopownwer.firebasestorage.app",
-  messagingSenderId: "72312473452",
-  appId: "1:72312473452:web:5353a9163b31e35cd7d549"
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_FIREBASE_APP_ID"
 };
 let firebaseReady = false;
 try {
@@ -389,7 +389,7 @@ document.addEventListener("DOMContentLoaded",()=>{
  document.getElementById("dashRefresh")?.addEventListener("click",loadDashboard);
  if(getAuth())showApp();else showLogin();
 });
-const API_URL="https://script.google.com/macros/s/AKfycby9fo6FBgc2QEsEU4AwsH2k4R3n-NuWdPvH405FeNCUW2cIrH9K6Tn84r7HTrCmEUyb/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
 
 if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
 
