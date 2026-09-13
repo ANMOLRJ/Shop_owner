@@ -179,8 +179,8 @@ try {
 <section class="card hidden" id="barcodeScanner">
 <div class="step">Step 1 of 3 — Barcode Scan</div>
 <div class="camera"><video id="barcodeVideo" autoplay muted playsinline></video><div class="box"></div><div class="line"></div></div>
-<p class="muted" style="text-align:center">Use the front-facing laptop camera and point it at the barcode.</p>
-<div class="status" id="barcodeStatus">Starting front camera barcode scanner…</div>
+<p class="muted" style="text-align:center">On mobile, the rear/back camera is used for barcode scanning. On a laptop, the available camera is used.</p>
+<div class="status" id="barcodeStatus">Starting camera barcode scanner…</div>
 <div style="height:9px"></div><button class="btn" id="closeBarcode">Cancel</button>
 </section>
 
@@ -188,7 +188,7 @@ try {
 <div class="step">Step 2 of 3 — MRP / MFD / EXP</div>
 <div class="camera"><video id="detailVideo" autoplay muted playsinline></video><div class="ocrbox"></div></div>
 <p class="muted" style="text-align:center">Place MRP/MFD/EXP clearly inside the box. Keep the text flat, close and well lit, then tap Capture & Read.</p>
-<div class="status" id="detailStatus">Starting front camera for product details…</div>
+<div class="status" id="detailStatus">Starting camera for product details…</div>
 <div style="height:9px"></div>
 <button class="btn primary" id="captureDetails">📸 Capture & Read Text</button>
 <div style="height:9px"></div>
@@ -533,56 +533,96 @@ async function loadBarcodeDecoder(){
  return "none";
 }
 async function startBarcodeCamera(){
- if(!navigator.mediaDevices?.getUserMedia){
-   setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
- }
- try{
-  setStatus("barcodeStatus","Connecting to the online barcode scanner…",false);
-  const decoder=await loadBarcodeDecoder();
-  if(decoder!=="zxing"){
-   setStatus("barcodeStatus","Online barcode scanner could not be loaded. Check your internet connection, then refresh the page.",false);return;
+  if(!navigator.mediaDevices?.getUserMedia){
+    setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
   }
-
-  // ZXing handles the camera stream itself. Ask specifically for the
-  // laptop's user-facing/front camera and continuously decode retail barcodes.
-  barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
-  const constraints={
-   audio:false,
-   video:{
-    facingMode:{ideal:"user"},
-    width:{ideal:1280,min:640},
-    height:{ideal:720,min:480}
-   }
-  };
-
-  setStatus("barcodeStatus","Starting front laptop camera…",false);
-  barcodeControls=await barcodeReader.decodeFromConstraints(constraints,barcodeVideo,(result,error)=>{
-   if(result && result.getText){
-    const text=String(result.getText()||"").trim();
-    if(text && !currentBarcode){
-     currentBarcode=text;
-     setStatus("barcodeStatus","✓ Barcode detected: "+text,true);
-     setTimeout(async()=>{stopBarcodeCamera();await openDetailsCamera();},150);
+  try{
+    setStatus("barcodeStatus","Connecting to the online barcode scanner…",false);
+    const decoder=await loadBarcodeDecoder();
+    if(decoder!=="zxing"){
+      setStatus("barcodeStatus","Online barcode scanner could not be loaded. Check your internet connection, then refresh the page.",false);return;
     }
-   }
-  });
-  setStatus("barcodeStatus","✓ Online scanner active. Put the barcode inside the box and hold it steady.",true);
- }catch(e){
-  setStatus("barcodeStatus","Camera/scanner error: "+(e.message||e)+". Allow camera access and refresh.",false);
-  stopBarcodeCamera();
- }
-}
 
+    barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+    const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+    const preferredConstraints={
+      audio:false,
+      video:{
+        facingMode:isMobile?{exact:"environment"}:{ideal:"user"},
+        width:{ideal:1280,min:640},
+        height:{ideal:720,min:480}
+      }
+    };
+    const fallbackConstraints={
+      audio:false,
+      video:{
+        facingMode:{ideal:isMobile?"environment":"user"},
+        width:{ideal:1280,min:640},
+        height:{ideal:720,min:480}
+      }
+    };
+
+    const startReader=async(constraints)=>{
+      barcodeControls=await barcodeReader.decodeFromConstraints(
+        constraints,barcodeVideo,(result,error)=>{
+          if(result && result.getText){
+            const text=String(result.getText()||"").trim();
+            if(text && !currentBarcode){
+              currentBarcode=text;
+              setStatus("barcodeStatus","✓ Barcode detected: "+text,true);
+              setTimeout(async()=>{stopBarcodeCamera();await openDetailsCamera();},150);
+            }
+          }
+        }
+      );
+    };
+
+    setStatus("barcodeStatus",
+      isMobile ? "Starting rear/back mobile camera…" : "Starting laptop camera…",false);
+
+    try{
+      await startReader(preferredConstraints);
+    }catch(firstError){
+      if(isMobile){
+        stopBarcodeCamera();
+        barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+        await startReader(fallbackConstraints);
+      }else{
+        throw firstError;
+      }
+    }
+
+    setStatus("barcodeStatus",
+      isMobile
+        ? "✓ Rear/back camera active. Put the barcode inside the box and hold it steady."
+        : "✓ Online scanner active. Put the barcode inside the box and hold it steady.",
+      true
+    );
+  }catch(e){
+    setStatus("barcodeStatus","Camera/scanner error: "+(e.message||e)+". Allow camera access and refresh.",false);
+    stopBarcodeCamera();
+  }
+}
 async function openDetailsCamera(){
- hideAll();detailScanner.classList.remove("hidden");
- setStatus("detailStatus","Starting front camera for product details…",false);
- try{
-  detailStream=await navigator.mediaDevices.getUserMedia({
-   video:{facingMode:{ideal:"user"},width:{ideal:1920},height:{ideal:1080}},audio:false
-  });
-  detailVideo.srcObject=detailStream;await detailVideo.play();
-  setStatus("detailStatus","Ready. Put MRP/MFD/EXP text inside the box using the front-facing laptop camera.",true);
- }catch(e){setStatus("detailStatus","Camera error: "+e.message,false)}
+  hideAll();detailScanner.classList.remove("hidden");
+  setStatus("detailStatus","Starting camera for product details…",false);
+  try{
+    const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    detailStream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:isMobile?"environment":"user"},
+        width:{ideal:1920},
+        height:{ideal:1080}
+      },
+      audio:false
+    });
+    detailVideo.srcObject=detailStream;await detailVideo.play();
+    setStatus("detailStatus",
+      "Ready. Put MRP/MFD/EXP text inside the box. Mobile uses the rear camera; laptops use the available camera.",
+      true
+    );
+  }catch(e){setStatus("detailStatus","Camera error: "+e.message,false)}
 }
 document.getElementById("captureDetails").onclick=async()=>{
  try{
