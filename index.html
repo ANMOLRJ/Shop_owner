@@ -62,13 +62,12 @@ textarea{min-height:100px;resize:vertical}
 <script>
 // IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
 const firebaseConfig = {
-  apiKey: "AIzaSyCYvDltf4-692M3c9aj31Gs8u9PtcCFJmw",
-  authDomain: "shopownwer.firebaseapp.com",
-  projectId: "shopownwer",
-  storageBucket: "shopownwer.firebasestorage.app",
-  messagingSenderId: "72312473452",
-  appId: "1:72312473452:web:5353a9163b31e35cd7d549",
-  measurementId: "G-Z3P3SFW6V5"
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_FIREBASE_APP_ID"
 };
 let firebaseReady = false;
 try {
@@ -79,6 +78,8 @@ try {
   }
 } catch(e) { console.error("Firebase initialization failed", e); }
 </script>
+<!-- Browser barcode decoder fallback: ZXing -->
+<script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
 <!-- Free/open-source browser OCR: Tesseract.js -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
@@ -170,7 +171,7 @@ try {
 </section>
 <section class="card hidden" id="home">
 <button class="btn primary" id="start">📷 Start Scanning</button>
-<p class="muted small">Step 1 uses the front-facing laptop camera to scan the barcode. Step 2 opens the same front-facing camera again and uses enhanced Tesseract OCR with image preprocessing and multiple OCR passes to read package text.</p>
+<p class="muted small">Step 1 scans the barcode. Step 2 opens the camera again and uses enhanced Tesseract OCR with image preprocessing and multiple OCR passes to read package text.</p>
 <div style="height:9px"></div>
 <button class="btn" id="manual">⌨️ Enter Barcode Manually</button>
 </section>
@@ -179,7 +180,7 @@ try {
 <div class="step">Step 1 of 3 — Barcode Scan</div>
 <div class="camera"><video id="barcodeVideo" autoplay muted playsinline></video><div class="box"></div><div class="line"></div></div>
 <p class="muted" style="text-align:center">Use the front-facing laptop camera and point it at the barcode.</p>
-<div class="status" id="barcodeStatus">Starting barcode camera…</div>
+<div class="status" id="barcodeStatus">Starting front camera barcode scanner…</div>
 <div style="height:9px"></div><button class="btn" id="closeBarcode">Cancel</button>
 </section>
 
@@ -187,7 +188,7 @@ try {
 <div class="step">Step 2 of 3 — MRP / MFD / EXP</div>
 <div class="camera"><video id="detailVideo" autoplay muted playsinline></video><div class="ocrbox"></div></div>
 <p class="muted" style="text-align:center">Place MRP/MFD/EXP clearly inside the box. Keep the text flat, close and well lit, then tap Capture & Read.</p>
-<div class="status" id="detailStatus">Starting details camera…</div>
+<div class="status" id="detailStatus">Starting front camera for product details…</div>
 <div style="height:9px"></div>
 <button class="btn primary" id="captureDetails">📸 Capture & Read Text</button>
 <div style="height:9px"></div>
@@ -432,7 +433,7 @@ function stopExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);exitPol
 async function waitForRfidAssignment(){const a=getAuth();if(!a)return;const st=document.getElementById("rfidAssignStatus");if(rfidPollTimer)clearInterval(rfidPollTimer);async function poll(){try{const r=await fetch(API_URL+"?action=rfidPending&shopId="+encodeURIComponent(a.shopId)+"&shopName="+encodeURIComponent(a.shopName));const d=await r.json();if(d.pending){currentAssignmentId=d.assignmentId;st.textContent="ESP32 #1 is waiting. Scan RFID tag now…";st.className="status ok";}else{st.textContent="Waiting for ESP32 #1…";st.className="status"}}catch(e){st.textContent="Waiting for RFID reader connection…";st.className="status bad"}}poll();rfidPollTimer=setInterval(poll,2000)}
 function stopRfidPolling(){if(rfidPollTimer)clearInterval(rfidPollTimer);rfidPollTimer=null}
 
-const API_URL="https://script.google.com/macros/s/AKfycbxDjL4k152iElZi-CQWtPV0hUzspILnSUg9fykyEcsyGc2X7Ru3SAymniUgvKVIv6cRlw/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
 
 if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
 
@@ -447,7 +448,7 @@ const barcodeVideo=document.getElementById("barcodeVideo");
 const detailVideo=document.getElementById("detailVideo");
 const captureCanvas=document.getElementById("captureCanvas");
 
-let barcodeStream=null,detailStream=null,detector=null,barcodeTimer=null;
+let barcodeStream=null,detailStream=null,detector=null,barcodeTimer=null,barcodeReader=null,barcodeControls=null;
 let currentBarcode="",barcodeSource="camera",detailsSource="ocr",ocrText="";
 let history=JSON.parse(localStorage.getItem("barcodeHistoryV8")||"[]");
 
@@ -456,6 +457,8 @@ function hideAll(){
 }
 function stopBarcodeCamera(){
  if(barcodeTimer)clearInterval(barcodeTimer);barcodeTimer=null;
+ if(barcodeControls){try{barcodeControls.stop()}catch(e){}barcodeControls=null;}
+ if(barcodeReader){try{barcodeReader.reset()}catch(e){}barcodeReader=null;}
  if(barcodeStream){barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null}
  barcodeVideo.srcObject=null;
 }
@@ -473,42 +476,68 @@ function setStatus(id,text,ok){
 
 async function startBarcodeCamera(){
  if(!navigator.mediaDevices?.getUserMedia){
-   setStatus("barcodeStatus","Camera unavailable. Use an HTTPS website.",false);return;
- }
- if(!("BarcodeDetector" in window)){
-   setStatus("barcodeStatus","Automatic barcode detection is not supported here. Use the manual barcode option.",false);return;
+   setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
  }
  try{
-  detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
+  // Always request the laptop/user-facing camera. ZXing is used as a fallback
+  // because BarcodeDetector is not available in many desktop browsers.
   barcodeStream=await navigator.mediaDevices.getUserMedia({
    video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false
   });
-  barcodeVideo.srcObject=barcodeStream;await barcodeVideo.play();
-  setStatus("barcodeStatus","Camera ready — scan the barcode.",true);
+  barcodeVideo.srcObject=barcodeStream;
+  await barcodeVideo.play();
+  setStatus("barcodeStatus","Front camera ready — point the barcode inside the box.",true);
 
-  barcodeTimer=setInterval(async()=>{
-   if(!detector||!barcodeVideo.videoWidth)return;
-   try{
-    const codes=await detector.detect(barcodeVideo);
-    if(codes.length&&codes[0].rawValue){
-     currentBarcode=codes[0].rawValue;
-     stopBarcodeCamera();
-     await openDetailsCamera();
-    }
-   }catch(e){}
-  },250);
- }catch(e){setStatus("barcodeStatus","Camera error: "+e.message,false)}
+  if(window.ZXingBrowser){
+    barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+    // Reuse the already opened front-camera stream. ZXing's continuous reader
+    // needs a device; choose the device whose label indicates the user/front camera.
+    let deviceId=null;
+    try{
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const cams=devices.filter(d=>d.kind==='videoinput');
+      const front=cams.find(d=>/front|user|integrated|webcam|facetime/i.test(d.label));
+      deviceId=(front||cams[0]||{}).deviceId||null;
+    }catch(e){}
+    // Stop the preview stream before ZXing opens its own front-camera stream.
+    if(barcodeStream){barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;}
+    barcodeVideo.srcObject=null;
+    const constraints={video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false};
+    barcodeControls=await barcodeReader.decodeFromConstraints(constraints,barcodeVideo,(result,error)=>{
+      if(result&&result.getText){
+        currentBarcode=result.getText();
+        stopBarcodeCamera();
+        openDetailsCamera();
+      }
+    });
+  }else if("BarcodeDetector" in window){
+    detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
+    barcodeTimer=setInterval(async()=>{
+      if(!detector||!barcodeVideo.videoWidth)return;
+      try{
+        const codes=await detector.detect(barcodeVideo);
+        if(codes.length&&codes[0].rawValue){
+          currentBarcode=codes[0].rawValue;
+          stopBarcodeCamera();
+          await openDetailsCamera();
+        }
+      }catch(e){}
+    },250);
+  }else{
+    setStatus("barcodeStatus","Barcode decoder could not load. Use Manual Barcode below.",false);
+  }
+ }catch(e){setStatus("barcodeStatus","Camera/Barcode error: "+e.message,false)}
 }
 
 async function openDetailsCamera(){
  hideAll();detailScanner.classList.remove("hidden");
- setStatus("detailStatus","Starting details camera…",false);
+ setStatus("detailStatus","Starting front camera for product details…",false);
  try{
   detailStream=await navigator.mediaDevices.getUserMedia({
    video:{facingMode:{ideal:"user"},width:{ideal:1920},height:{ideal:1080}},audio:false
   });
   detailVideo.srcObject=detailStream;await detailVideo.play();
-  setStatus("detailStatus","Ready. Put MRP/MFD/EXP text inside the box.",true);
+  setStatus("detailStatus","Ready. Put MRP/MFD/EXP text inside the box using the front-facing laptop camera.",true);
  }catch(e){setStatus("detailStatus","Camera error: "+e.message,false)}
 }
 
