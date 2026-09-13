@@ -12,7 +12,7 @@ body{margin:0;background:#f4f6fa;color:#172033;font-family:system-ui,-apple-syst
 h1{font-size:25px;margin:5px 0}.sub,.muted{color:#697386}
 .btn{width:100%;padding:14px;border-radius:13px;border:1px solid #dce1e9;background:#fff;font-size:16px;font-weight:750;cursor:pointer}
 .primary{background:#172033;color:#fff;border-color:#172033}
-.camera{position:relative;aspect-ratio:3/4;border-radius:18px;overflow:hidden;background:#111}
+.camera{position:relative;aspect-ratio:16/9;border-radius:18px;overflow:hidden;background:#111}
 .camera video{width:100%;height:100%;object-fit:cover}
 .box{position:absolute;left:9%;right:9%;top:32%;height:36%;border:3px solid #fff;border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.3)}
 .line{position:absolute;left:10%;right:10%;top:50%;height:2px;background:#fff;animation:scan 1.5s infinite}
@@ -80,8 +80,7 @@ try {
 } catch(e) { console.error("Firebase initialization failed", e); }
 </script>
 <!-- Free/open-source browser OCR: Tesseract.js -->
-<!-- Browser barcode decoder fallback: ZXing -->
-<script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
+<!-- Barcode decoder is loaded dynamically from reliable CDNs below. -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
@@ -242,9 +241,9 @@ try {
 <section class="card hidden" id="rfidAssignCard">
   <div class="step">Step 3 of 3 — RFID Assignment</div>
   <h2 style="margin:4px 0">🏷️ Assign RFID Tag</h2>
-  <p class="muted">Product saved. ESP8266 #1 + RC522 is waiting for this product. Scan one RFID tag on the RC522 reader.</p>
+  <p class="muted">Product saved. You must assign <b>one unique RFID tag for every physical unit</b>. For quantity 2, scan 2 different RFID tags; for quantity 3, scan 3 different RFID tags.</p>
   <div class="pill" id="rfidAssignProduct"></div>
-  <div class="status" id="rfidAssignStatus">Waiting for ESP8266 #1…</div>
+  <div class="status" id="rfidAssignStatus">Waiting for ESP8266 #1…</div><div class="muted small" id="rfidAssignProgress" style="margin-top:8px">0 RFID tags assigned</div>
   <div style="height:9px"></div><button class="btn" id="rfidDoneBtn">🏪 Back to Dashboard</button>
 </section>
 
@@ -401,7 +400,7 @@ async function sellProduct(encoded){
   const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
    body:JSON.stringify({action:"recordSale",shopId:a.shopId,shopName:a.shopName,userId:a.userId,barcode,quantity:qty})});
   const d=await r.json();if(!d.ok)throw new Error(d.error||"Sale failed");
-  alert("Sale recorded. Total: ₹"+Number(d.total||0).toFixed(2));
+  alert("Sale recorded. Total: ₹"+Number(d.total||0).toFixed(2)+"\nRemaining stock: "+Number(d.remainingQuantity||0));
   loadDashboard();
  }catch(e){alert(e.message)}
 }
@@ -425,7 +424,12 @@ document.addEventListener("DOMContentLoaded",()=>{
 let rfidPollTimer=null, exitPollTimer=null, currentAssignmentId="";
 function apiPost(obj){return fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(obj)}).then(r=>r.json())}
 async function loadExitEvents(){const a=getAuth();if(!a)return;try{const r=await fetch(API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId));const d=await r.json();if(d.ok)renderExitEvents(d.events||[])}catch(e){}}
-function renderExitEvents(events){const el=document.getElementById("exitList"), total=events.reduce((s,x)=>s+Number(x.price||0),0);document.getElementById("exitTotal").textContent=total.toFixed(2);if(!events.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products waiting at an exit.</div>';return}el.innerHTML=events.map(x=>`<div class="product-row"><strong>${esc(x.productName||"Unnamed")}</strong><div class="muted small">Exit ${x.exitNo} · RFID ${esc(x.rfidUid)} · ${esc(x.barcode)}</div><div>₹${Number(x.price||0).toFixed(2)}</div><button class="btn" onclick="removeExitEvent('${encodeURIComponent(x.eventId)}')">🗑️ Remove</button></div>`).join("")}
+function renderExitEvents(events){
+ const el=document.getElementById("exitList"),total=events.reduce((s,x)=>s+Number(x.price||0),0);
+ document.getElementById("exitTotal").textContent=total.toFixed(2);
+ if(!events.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products waiting at an exit.</div>';return}
+ el.innerHTML='<div class="status ok">'+events.length+' product(s) currently detected and waiting for payment.</div>'+events.map(x=>`<div class="product-row"><strong>${esc(x.productName||"Unnamed")}</strong><div class="muted small">Exit Door ${x.exitNo} · RFID ${esc(x.rfidUid)} · ${esc(x.barcode)}</div><div>₹${Number(x.price||0).toFixed(2)}</div><button class="btn" onclick="removeExitEvent('${encodeURIComponent(x.eventId)}')">🗑️ Remove</button></div>`).join("")
+}
 async function removeExitEvent(encoded){const a=getAuth();const id=decodeURIComponent(encoded);if(!confirm("Remove this detected product from checkout?"))return;const d=await apiPost({action:"removeExitEvent",shopId:a.shopId,eventId:id});if(!d.ok)alert(d.error||"Could not remove");loadExitEvents()}
 async function payExitEvents(){const a=getAuth();try{const r=await fetch(API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId));const d=await r.json();const ids=(d.events||[]).map(x=>x.eventId);if(!ids.length){alert("No products waiting for payment.");return}const p=await apiPost({action:"payExitEvents",shopId:a.shopId,shopName:a.shopName,userId:a.userId,eventIds:ids});if(!p.ok)throw new Error(p.error||"Payment failed");document.getElementById("billStatus").textContent="Payment recorded. Bill generated. Total: ₹"+Number(p.total||0).toFixed(2)+" | Sales: "+(p.saleIds||[]).length;document.getElementById("billStatus").className="status ok";document.getElementById("billStatus").classList.remove("hidden");loadDashboard();loadExitEvents()}catch(e){alert(e.message)}}
 async function saveExitCount(){const a=getAuth();const n=Math.max(1,Math.min(20,Number(document.getElementById("exitCountInput").value)||1));try{const d=await apiPost({action:"updateExitCount",shopId:a.shopId,exitCount:n});if(!d.ok)throw new Error(d.error||"Could not update");document.getElementById("exitCountInput").value=d.exitCount;alert("Exit count updated to "+d.exitCount)}catch(e){alert(e.message)}}
@@ -433,26 +437,29 @@ function startExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);loadEx
 function stopExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);exitPollTimer=null}
 async function waitForRfidAssignment(){
  const a=getAuth(); if(!a)return;
- const st=document.getElementById("rfidAssignStatus");
+ const st=document.getElementById("rfidAssignStatus"),prog=document.getElementById("rfidAssignProgress");
  if(rfidPollTimer)clearInterval(rfidPollTimer);
- let wasPending=false;
+ let lastAssigned=-1,lastRequired=-1;
  async function poll(){
   try{
    const r=await fetch(API_URL+"?action=rfidPending&shopId="+encodeURIComponent(a.shopId)+"&shopName="+encodeURIComponent(a.shopName),{cache:"no-store"});
    const d=await r.json();
    if(!d.ok)throw new Error(d.error||"RFID status request failed");
+   const assigned=Number(d.assignedCount||0), required=Number(d.quantity||0), remaining=Number(d.remainingCount||Math.max(0,required-assigned));
+   if(required>0){prog.textContent=assigned+" / "+required+" RFID tags assigned";}
    if(d.pending){
-    wasPending=true;
     currentAssignmentId=d.assignmentId||"";
-    st.textContent="ESP8266 #1 is waiting. Scan RFID tag now…";
+    st.textContent="ESP8266 #1 is waiting. Scan RFID tag "+(assigned+1)+" of "+required+" now…";
     st.className="status ok";
-   }else if(wasPending){
-    stopRfidPolling();
-    currentAssignmentId="";
-    st.textContent="✓ RFID assigned successfully. Product is now ready for exit scanning.";
+    lastAssigned=assigned;lastRequired=required;
+   }else if((required>0 && remaining<=0) || (required===0 && lastRequired>0 && lastAssigned===lastRequired-1)){
+    stopRfidPolling();currentAssignmentId="";
+    const done=required>0?required:lastRequired;
+    st.textContent="✓ All "+done+" RFID tags assigned successfully. Product is ready for exit scanning.";
     st.className="status ok";
+    prog.textContent=done+" / "+done+" RFID tags assigned — COMPLETE";
    }else{
-    st.textContent="Waiting for ESP8266 #1…";
+    st.textContent=lastAssigned>=0?"Waiting for ESP8266 #1 for the next RFID tag…":"Waiting for ESP8266 #1…";
     st.className="status";
    }
   }catch(e){
@@ -461,8 +468,9 @@ async function waitForRfidAssignment(){
   }
  }
  poll();
- rfidPollTimer=setInterval(poll,2000);
+ rfidPollTimer=setInterval(poll,1500);
 }
+
 function stopRfidPolling(){if(rfidPollTimer)clearInterval(rfidPollTimer);rfidPollTimer=null}
 
 const API_URL="https://script.google.com/macros/s/AKfycbxDjL4k152iElZi-CQWtPV0hUzspILnSUg9fykyEcsyGc2X7Ru3SAymniUgvKVIv6cRlw/exec";
@@ -506,52 +514,68 @@ function setStatus(id,text,ok){
  el.className="status "+(ok?"ok":"bad");
 }
 
+function loadScript(src){
+ return new Promise((resolve,reject)=>{
+  const script=document.createElement("script");script.src=src;script.async=true;script.onload=()=>resolve(true);script.onerror=()=>reject(new Error("Could not load barcode decoder"));document.head.appendChild(script);
+ });
+}
+async function loadBarcodeDecoder(){
+ if(window.ZXingBrowser)return "zxing";
+ const urls=[
+  "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/index.min.js",
+  "https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"
+ ];
+ for(const u of urls){
+  try{await loadScript(u);if(window.ZXingBrowser)return "zxing";}catch(e){}
+ }
+ if("BarcodeDetector" in window)return "native";
+ return "none";
+}
 async function startBarcodeCamera(){
  if(!navigator.mediaDevices?.getUserMedia){
    setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
  }
  try{
-  // Laptop webcam = user/front-facing camera. ZXing is preferred because
-  // BarcodeDetector is unavailable in many desktop browsers.
-  barcodeStream=await navigator.mediaDevices.getUserMedia({
-   video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false
-  });
-  barcodeVideo.srcObject=barcodeStream;
-  await barcodeVideo.play();
-  setStatus("barcodeStatus","Front camera ready — point the barcode inside the box.",true);
-
-  if(window.ZXingBrowser){
-    barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
-    // ZXing opens its own stream for continuous decoding. Stop the preview
-    // stream first so the laptop webcam is not requested twice.
-    if(barcodeStream){barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;}
-    barcodeVideo.srcObject=null;
-    const constraints={video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false};
-    barcodeControls=await barcodeReader.decodeFromConstraints(constraints,barcodeVideo,(result,error)=>{
-      if(result&&result.getText){
-        currentBarcode=result.getText();
-        stopBarcodeCamera();
-        openDetailsCamera();
-      }
-    });
-  }else if("BarcodeDetector" in window){
-    detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
-    barcodeTimer=setInterval(async()=>{
-      if(!detector||!barcodeVideo.videoWidth)return;
-      try{
-        const codes=await detector.detect(barcodeVideo);
-        if(codes.length&&codes[0].rawValue){
-          currentBarcode=codes[0].rawValue;
-          stopBarcodeCamera();
-          await openDetailsCamera();
-        }
-      }catch(e){}
-    },250);
-  }else{
-    setStatus("barcodeStatus","Barcode decoder could not load. Use Manual Barcode below.",false);
+  setStatus("barcodeStatus","Loading barcode scanner…",false);
+  const decoder=await loadBarcodeDecoder();
+  if(decoder==="none"){
+   setStatus("barcodeStatus","Barcode scanner library could not load in this browser/network. Use Manual Barcode below, or allow CDN scripts in the browser/network.",false);return;
   }
- }catch(e){setStatus("barcodeStatus","Camera/Barcode error: "+e.message,false)}
+  // Explicitly request the laptop's user-facing/front webcam.
+  const constraints={video:{facingMode:{exact:"user"},width:{ideal:1280},height:{ideal:720}},audio:false};
+  try{barcodeStream=await navigator.mediaDevices.getUserMedia(constraints)}catch(e){
+   // Some laptop drivers reject exact facingMode. Retry with ideal user camera.
+   barcodeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false});
+  }
+  barcodeVideo.srcObject=barcodeStream;await barcodeVideo.play();
+  setStatus("barcodeStatus","Front laptop camera ready. Hold the barcode flat, close and inside the box.",true);
+
+  if(decoder==="zxing"){
+   barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+   // Keep the already-open front camera stream. Decode frames from the same video.
+   barcodeTimer=setInterval(async()=>{
+    if(!barcodeReader||!barcodeVideo.videoWidth)return;
+    try{
+     const result=await barcodeReader.decodeFromVideoElement(barcodeVideo);
+     if(result&&result.getText){
+      currentBarcode=result.getText().trim();
+      if(currentBarcode){stopBarcodeCamera();await openDetailsCamera();}
+     }
+    }catch(e){}
+   },350);
+  }else{
+   detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
+   barcodeTimer=setInterval(async()=>{
+    if(!detector||!barcodeVideo.videoWidth)return;
+    try{
+     const codes=await detector.detect(barcodeVideo);
+     if(codes.length&&codes[0].rawValue){currentBarcode=codes[0].rawValue.trim();stopBarcodeCamera();await openDetailsCamera();}
+    }catch(e){}
+   },250);
+  }
+ }catch(e){setStatus("barcodeStatus","Camera/Barcode error: "+(e.message||e),false)}
 }
+
 async function openDetailsCamera(){
  hideAll();detailScanner.classList.remove("hidden");
  setStatus("detailStatus","Starting front camera for product details…",false);
