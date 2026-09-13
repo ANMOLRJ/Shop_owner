@@ -62,13 +62,12 @@ textarea{min-height:100px;resize:vertical}
 <script>
 // IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
 const firebaseConfig = {
-  apiKey: "AIzaSyCYvDltf4-692M3c9aj31Gs8u9PtcCFJmw",
-  authDomain: "shopownwer.firebaseapp.com",
-  projectId: "shopownwer",
-  storageBucket: "shopownwer.firebasestorage.app",
-  messagingSenderId: "72312473452",
-  appId: "1:72312473452:web:5353a9163b31e35cd7d549",
-  measurementId: "G-Z3P3SFW6V5"
+  apiKey: "YOUR_FIREBASE_API_KEY",
+  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_FIREBASE_APP_ID"
 };
 let firebaseReady = false;
 try {
@@ -141,15 +140,31 @@ try {
     <div class="stat"><span class="muted small">Sales Amount</span><b id="statAmount">₹0</b></div>
   </div>
   <div style="height:12px"></div>
+  <div class="grid">
+    <div class="field"><label>Number of Exit Doors</label><input id="exitCountInput" type="number" min="1" max="20" value="1"></div>
+    <div style="display:flex;align-items:end"><button class="btn" id="saveExitCount">💾 Save Exit Count</button></div>
+  </div>
+  <div class="muted small">Configure how many exit ESP32 readers this shop uses. ESP32 #2 can be Exit 1, ESP32 #3 can be Exit 2, and so on.</div>
+  <div style="height:12px"></div>
   <div class="dashboard-actions">
     <button class="btn primary" id="dashScan">📷 Add Product by Scan</button>
-    <button class="btn" id="dashRefresh">🔄 Refresh Products</button>
+    <button class="btn" id="dashRefresh">🔄 Refresh Dashboard</button>
   </div>
+</section>
+
+<section class="card hidden" id="exitCard">
+  <div class="step">Exit / Checkout</div>
+  <h2 style="margin:4px 0">🚪 Detected Products</h2>
+  <div class="muted small">Products detected by ESP32 exit readers appear here. Remove a wrongly detected product or mark selected products as paid.</div>
+  <div id="exitList" style="margin-top:10px"></div>
+  <div class="checkout-total" style="font-size:20px;font-weight:700;margin-top:12px">Total: ₹<span id="exitTotal">0.00</span></div>
+  <button class="btn primary" id="payExitBtn" style="margin-top:10px">💳 PAID — Generate Bill</button>
+  <div class="status hidden" id="billStatus"></div>
 </section>
 
 <section class="card hidden" id="productListCard">
   <strong>My Shop Products</strong>
-  <div class="muted small" style="margin:4px 0 8px">Only products belonging to the logged-in shop are shown here.</div>
+  <div class="muted small" style="margin:4px 0 8px">Only products belonging to the logged-in shop are shown here. RFID status is shown after assignment.</div>
   <div id="productList"></div>
 </section>
 <section class="card hidden" id="home">
@@ -160,7 +175,7 @@ try {
 </section>
 
 <section class="card hidden" id="barcodeScanner">
-<div class="step">Step 1 of 2 — Barcode Scan</div>
+<div class="step">Step 1 of 3 — Barcode Scan</div>
 <div class="camera"><video id="barcodeVideo" autoplay muted playsinline></video><div class="box"></div><div class="line"></div></div>
 <p class="muted" style="text-align:center">Point the rear camera at the barcode.</p>
 <div class="status" id="barcodeStatus">Starting barcode camera…</div>
@@ -168,7 +183,7 @@ try {
 </section>
 
 <section class="card hidden" id="detailScanner">
-<div class="step">Step 2 of 2 — MRP / MFD / EXP</div>
+<div class="step">Step 2 of 3 — MRP / MFD / EXP</div>
 <div class="camera"><video id="detailVideo" autoplay muted playsinline></video><div class="ocrbox"></div></div>
 <p class="muted" style="text-align:center">Place MRP/MFD/EXP clearly inside the box. Keep the text flat, close and well lit, then tap Capture & Read.</p>
 <div class="status" id="detailStatus">Starting details camera…</div>
@@ -221,6 +236,15 @@ try {
 <div class="status hidden" id="saveStatus"></div>
 </section>
 
+<section class="card hidden" id="rfidAssignCard">
+  <div class="step">Step 3 of 3 — RFID Assignment</div>
+  <h2 style="margin:4px 0">🏷️ Assign RFID Tag</h2>
+  <p class="muted">Product saved. ESP32 #1 + RC522 is waiting for this product. Scan one RFID tag on the RC522 reader.</p>
+  <div class="pill" id="rfidAssignProduct"></div>
+  <div class="status" id="rfidAssignStatus">Waiting for ESP32 #1…</div>
+  <div style="height:9px"></div><button class="btn" id="rfidDoneBtn">🏪 Back to Dashboard</button>
+</section>
+
 <section class="card hidden" id="recentCard"><strong>Recent scans</strong><div id="history" style="margin-top:8px"></div></section>
 </div>
 
@@ -235,8 +259,9 @@ function getAuth(){try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")
 function setAuth(u){localStorage.setItem(AUTH_KEY,JSON.stringify(u))}
 function clearAuth(){localStorage.removeItem(AUTH_KEY)}
 function showLogin(){
+ stopExitPolling();stopRfidPolling();
  document.getElementById("loginScreen").classList.add("active");
- ["home","dashboard","productListCard","recentCard","shopBar"].forEach(id=>document.getElementById(id)?.classList.add("hidden"));
+ ["home","dashboard","productListCard","recentCard","exitCard","rfidAssignCard","shopBar"].forEach(id=>document.getElementById(id)?.classList.add("hidden"));
 }
 function showApp(){
  const a=getAuth(); if(!a){showLogin();return false}
@@ -248,7 +273,9 @@ function showApp(){
  document.getElementById("dashboard").classList.remove("hidden");
  document.getElementById("productListCard").classList.remove("hidden");
  document.getElementById("recentCard").classList.remove("hidden");
- loadDashboard(); return true;
+ document.getElementById("exitCard").classList.remove("hidden");
+ loadDashboard();
+ startExitPolling(); return true;
 }
 function normalizePhoneInput(v){
  let p=String(v||"").replace(/[^0-9+]/g,"");
@@ -332,6 +359,7 @@ async function loadDashboard(){
   document.getElementById("statSales").textContent=d.stats.salesCount;
   document.getElementById("statUnits").textContent=d.stats.salesUnits;
   document.getElementById("statAmount").textContent="₹"+Number(d.stats.salesAmount||0).toFixed(2);
+  document.getElementById("exitCountInput").value=d.exitCount||1;
   renderProducts(d.products||[]);
  }catch(e){
   document.getElementById("productList").innerHTML='<div class="status bad">Dashboard error: '+esc(e.message)+'</div>';
@@ -345,7 +373,7 @@ function renderProducts(items){
   <strong>${esc(p.name||"Unnamed product")}</strong>
   <div class="muted small">${esc(p.barcode)} · Stock: <b>${p.quantity}</b></div>
   <div>${p.mrp?"MRP ₹"+esc(p.mrp):""}${p.sellingPrice?" · Sell ₹"+esc(p.sellingPrice):""}</div>
-  <div class="muted small">${p.mfd?"MFD "+esc(p.mfd):""}${p.exp?" · EXP "+esc(p.exp):""}</div>
+  <div class="muted small">${p.mfd?"MFD "+esc(p.mfd):""}${p.exp?" · EXP "+esc(p.exp):""}</div><div class="muted small">RFID: ${p.rfidUid?esc(p.rfidUid):"Not assigned"} · ${esc(p.rfidStatus||"PENDING")}</div>
   <div class="row-actions">
    <button class="btn" onclick="sellProduct('${encodeURIComponent(p.barcode)}')">🧾 Sell 1</button>
    <button class="btn" onclick="deleteProduct('${encodeURIComponent(p.barcode)}')">🗑️ Delete</button>
@@ -390,7 +418,20 @@ document.addEventListener("DOMContentLoaded",()=>{
  document.getElementById("dashRefresh")?.addEventListener("click",loadDashboard);
  if(getAuth())showApp();else showLogin();
 });
-const API_URL="https://script.google.com/macros/s/AKfycby8Wwk6u9qqOp6YaFn1s9SLMI-mqql5W71Ibu5U486tm_EI41n1U8ircjMriGpKeDcW-Q/exec";
+
+let rfidPollTimer=null, exitPollTimer=null, currentAssignmentId="";
+function apiPost(obj){return fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(obj)}).then(r=>r.json())}
+async function loadExitEvents(){const a=getAuth();if(!a)return;try{const r=await fetch(API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId));const d=await r.json();if(d.ok)renderExitEvents(d.events||[])}catch(e){}}
+function renderExitEvents(events){const el=document.getElementById("exitList"), total=events.reduce((s,x)=>s+Number(x.price||0),0);document.getElementById("exitTotal").textContent=total.toFixed(2);if(!events.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products waiting at an exit.</div>';return}el.innerHTML=events.map(x=>`<div class="product-row"><strong>${esc(x.productName||"Unnamed")}</strong><div class="muted small">Exit ${x.exitNo} · RFID ${esc(x.rfidUid)} · ${esc(x.barcode)}</div><div>₹${Number(x.price||0).toFixed(2)}</div><button class="btn" onclick="removeExitEvent('${encodeURIComponent(x.eventId)}')">🗑️ Remove</button></div>`).join("")}
+async function removeExitEvent(encoded){const a=getAuth();const id=decodeURIComponent(encoded);if(!confirm("Remove this detected product from checkout?"))return;const d=await apiPost({action:"removeExitEvent",shopId:a.shopId,eventId:id});if(!d.ok)alert(d.error||"Could not remove");loadExitEvents()}
+async function payExitEvents(){const a=getAuth();try{const r=await fetch(API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId));const d=await r.json();const ids=(d.events||[]).map(x=>x.eventId);if(!ids.length){alert("No products waiting for payment.");return}const p=await apiPost({action:"payExitEvents",shopId:a.shopId,shopName:a.shopName,userId:a.userId,eventIds:ids});if(!p.ok)throw new Error(p.error||"Payment failed");document.getElementById("billStatus").textContent="Payment recorded. Bill generated. Total: ₹"+Number(p.total||0).toFixed(2)+" | Sales: "+(p.saleIds||[]).length;document.getElementById("billStatus").className="status ok";document.getElementById("billStatus").classList.remove("hidden");loadDashboard();loadExitEvents()}catch(e){alert(e.message)}}
+async function saveExitCount(){const a=getAuth();const n=Math.max(1,Math.min(20,Number(document.getElementById("exitCountInput").value)||1));try{const d=await apiPost({action:"updateExitCount",shopId:a.shopId,exitCount:n});if(!d.ok)throw new Error(d.error||"Could not update");document.getElementById("exitCountInput").value=d.exitCount;alert("Exit count updated to "+d.exitCount)}catch(e){alert(e.message)}}
+function startExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);loadExitEvents();exitPollTimer=setInterval(loadExitEvents,2500)}
+function stopExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);exitPollTimer=null}
+async function waitForRfidAssignment(){const a=getAuth();if(!a)return;const st=document.getElementById("rfidAssignStatus");if(rfidPollTimer)clearInterval(rfidPollTimer);async function poll(){try{const r=await fetch(API_URL+"?action=rfidPending&shopId="+encodeURIComponent(a.shopId)+"&shopName="+encodeURIComponent(a.shopName));const d=await r.json();if(d.pending){currentAssignmentId=d.assignmentId;st.textContent="ESP32 #1 is waiting. Scan RFID tag now…";st.className="status ok";}else{st.textContent="Waiting for ESP32 #1…";st.className="status"}}catch(e){st.textContent="Waiting for RFID reader connection…";st.className="status bad"}}poll();rfidPollTimer=setInterval(poll,2000)}
+function stopRfidPolling(){if(rfidPollTimer)clearInterval(rfidPollTimer);rfidPollTimer=null}
+
+const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
 
 if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
 
@@ -790,11 +831,13 @@ async function save(){
  if(!payload.barcode){st.textContent="Barcode missing.";st.className="status bad";st.classList.remove("hidden");return}
  btn.disabled=true;btn.textContent="Saving…";
  try{
-  await fetch(API_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
+  const r=await apiPost(payload);
+  if(!r.ok)throw new Error(r.error||"Save failed");
   history.unshift({barcode:payload.barcode,name:payload.name,mrp:payload.mrp,mfd:payload.manufacturingDate,exp:payload.exp,time:new Date().toLocaleString()});
   history=history.slice(0,10);localStorage.setItem("barcodeHistoryV8",JSON.stringify(history));renderHistory();
   loadDashboard();
   st.textContent="Saved to your shop.";st.className="status ok";st.classList.remove("hidden");
+  if(r.rfidRequired){ hideAll(); document.getElementById("rfidAssignCard").classList.remove("hidden"); document.getElementById("rfidAssignProduct").textContent=payload.name||payload.barcode; waitForRfidAssignment(); }
  }catch(e){
   st.textContent="Save failed: "+e.message;st.className="status bad";st.classList.remove("hidden");
  }finally{btn.disabled=false;btn.textContent="💾 Save to Google Sheet"}
@@ -823,15 +866,18 @@ document.getElementById("barcodeInput").onkeydown=e=>{if(e.key==="Enter")documen
 document.getElementById("skipDetails").onclick=()=>{stopDetailCamera();detailsSource="manual";ocrText="";openProduct()};
 document.getElementById("save").onclick=save;
 document.getElementById("backDashboard").onclick=()=>{
- stopAll();hideAll();document.getElementById("dashboard").classList.remove("hidden");
+ stopAll();stopRfidPolling();hideAll();document.getElementById("dashboard").classList.remove("hidden");
  document.getElementById("productListCard").classList.remove("hidden");loadDashboard();
 };
 document.getElementById("scanAgain").onclick=async()=>{
- stopAll();hideAll();document.getElementById("dashboard").classList.add("hidden");
+ stopAll();stopRfidPolling();hideAll();document.getElementById("dashboard").classList.add("hidden");
  document.getElementById("productListCard").classList.add("hidden");
  barcodeScanner.classList.remove("hidden");currentBarcode="";ocrText="";await startBarcodeCamera()
 };
-addEventListener("beforeunload",stopAll);
+document.getElementById("saveExitCount").onclick=saveExitCount;
+document.getElementById("payExitBtn").onclick=payExitEvents;
+document.getElementById("rfidDoneBtn").onclick=()=>{stopRfidPolling();showApp()};
+addEventListener("beforeunload",()=>{stopAll();stopRfidPolling();stopExitPolling()});
 renderHistory();
 </script>
 </body>
