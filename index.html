@@ -62,12 +62,13 @@ textarea{min-height:100px;resize:vertical}
 <script>
 // IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
 const firebaseConfig = {
-  apiKey: "YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_FIREBASE_APP_ID"
+  apiKey: "AIzaSyCYvDltf4-692M3c9aj31Gs8u9PtcCFJmw",
+  authDomain: "shopownwer.firebaseapp.com",
+  projectId: "shopownwer",
+  storageBucket: "shopownwer.firebasestorage.app",
+  messagingSenderId: "72312473452",
+  appId: "1:72312473452:web:5353a9163b31e35cd7d549",
+  measurementId: "G-Z3P3SFW6V5"
 };
 let firebaseReady = false;
 try {
@@ -433,7 +434,7 @@ function stopExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);exitPol
 async function waitForRfidAssignment(){const a=getAuth();if(!a)return;const st=document.getElementById("rfidAssignStatus");if(rfidPollTimer)clearInterval(rfidPollTimer);async function poll(){try{const r=await fetch(API_URL+"?action=rfidPending&shopId="+encodeURIComponent(a.shopId)+"&shopName="+encodeURIComponent(a.shopName));const d=await r.json();if(d.pending){currentAssignmentId=d.assignmentId;st.textContent="ESP32 #1 is waiting. Scan RFID tag now…";st.className="status ok";}else{st.textContent="Waiting for ESP32 #1…";st.className="status"}}catch(e){st.textContent="Waiting for RFID reader connection…";st.className="status bad"}}poll();rfidPollTimer=setInterval(poll,2000)}
 function stopRfidPolling(){if(rfidPollTimer)clearInterval(rfidPollTimer);rfidPollTimer=null}
 
-const API_URL="https://script.google.com/macros/s/AKfycbyWUeyupOAenIkEd8Ym773jmuTxGB2B4HuI5UeI_PlZR08VwOdB6vrpm_bKxc2v77AP/exec";
+const API_URL="https://script.google.com/macros/s/AKfycbxDjL4k152iElZi-CQWtPV0hUzspILnSUg9fykyEcsyGc2X7Ru3SAymniUgvKVIv6cRlw/exec";
 
 if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
 
