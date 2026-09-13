@@ -80,7 +80,7 @@ try {
 } catch(e) { console.error("Firebase initialization failed", e); }
 </script>
 <!-- Free/open-source browser OCR: Tesseract.js -->
-<!-- Barcode decoder is loaded dynamically from reliable CDNs below. -->
+<!-- Online barcode scanner: @zxing/browser UMD is loaded from official package CDNs. -->
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
@@ -514,108 +514,63 @@ function setStatus(id,text,ok){
  el.className="status "+(ok?"ok":"bad");
 }
 
-// Local EAN-13/UPC-A decoder. This does NOT use a CDN, so it works on
-// GitHub Pages even when external JavaScript/CDN access is blocked.
-const eanCanvas=document.createElement("canvas");
-eanCanvas.width=960; eanCanvas.height=540;
-const eanCtx=eanCanvas.getContext("2d",{willReadFrequently:true});
-const EAN_L=["0001101","0011001","0010011","0111101","0100011","0110001","0101111","0111011","0110111","0001011"];
-const EAN_G=["0100111","0110011","0011011","0100001","0011101","0111001","0000101","0010001","0001001","0010111"];
-const EAN_R=["1110010","1100110","1101100","1000010","1011100","1001110","1010000","1000100","1001000","1110100"];
-const EAN_PARITY=["LLLLLL","LLGLGG","LLGGLG","LLGGGL","LGLLGG","LGGLLG","LGGGLL","LGLGLG","LGLGGL","LGGLGL"];
-function grayAt(data,i){return (data[i]*299+data[i+1]*587+data[i+2]*114)/1000;}
-function checksumEAN13(v){let sum=0;for(let i=0;i<12;i++)sum+=(v.charCodeAt(i)-48)*(i%2?3:1);return (10-(sum%10))%10===v.charCodeAt(12)-48;}
-function decodeEANRow(data,w,y,reverse=false){
-  const vals=new Array(w);
-  let sum=0;
-  for(let x=0;x<w;x++){const g=grayAt(data,(y*w+x)*4);vals[x]=g;sum+=g;}
-  const mean=sum/w;
-  const thresholds=[Math.max(55,Math.min(205,mean-25)),Math.max(65,Math.min(215,mean)),Math.max(75,Math.min(225,mean+25))];
-  for(const th of thresholds){
-    let bits=new Uint8Array(w);
-    for(let x=0;x<w;x++)bits[x]=vals[x]<th?1:0;
-    if(reverse){const b=bits;bits=new Uint8Array(w);for(let x=0;x<w;x++)bits[x]=b[w-1-x];}
-    // run-length encode, dropping tiny noise runs by keeping the original sequence for now.
-    const runs=[];let last=bits[0],st=0;
-    for(let x=1;x<=w;x++){
-      if(x===w||bits[x]!==last){runs.push({v:last,n:x-st,s:st,e:x});st=x;if(x<w)last=bits[x];}
-    }
-    for(let i=0;i<runs.length-3;i++){
-      if(runs[i].v!==1||runs[i+1].v!==0||runs[i+2].v!==1)continue;
-      const a=runs[i].n,b=runs[i+1].n,c=runs[i+2].n;
-      const unit=(a+b+c)/3;
-      if(unit<1.2||unit>30)continue;
-      const ratio=Math.max(a,b,c)/Math.min(a,b,c);
-      if(ratio>2.3)continue;
-      const start=runs[i].s;
-      // Search a small neighborhood for the 95-module EAN structure.
-      for(const scale of [unit,(a+b+c)/3,(a+b+c)/3*0.95,(a+b+c)/3*1.05]){
-        const total=95*scale;
-        const end=start+total;
-        if(end>w+2)continue;
-        const samples=new Array(95);
-        for(let m=0;m<95;m++){
-          const xx=Math.max(0,Math.min(w-1,Math.floor(start+(m+0.5)*scale)));
-          samples[m]=bits[xx];
-        }
-        if(!(samples[0]===1&&samples[1]===0&&samples[2]===1))continue;
-        if(!(samples[45]===0&&samples[46]===1&&samples[47]===0&&samples[48]===1&&samples[49]===0))continue;
-        if(!(samples[92]===1&&samples[93]===0&&samples[94]===1))continue;
-        let left="",right="",par="",ok=true;
-        for(let d=0;d<6;d++){
-          const p=3+7*d; const pat=samples.slice(p,p+7).join("");
-          let ix=EAN_L.indexOf(pat),typ="L";
-          if(ix<0){ix=EAN_G.indexOf(pat);typ="G";}
-          if(ix<0){ok=false;break;} left+=ix;par+=typ;
-        }
-        if(!ok)continue;
-        const first=EAN_PARITY.indexOf(par);if(first<0)continue;
-        for(let d=0;d<6;d++){
-          const p=50+7*d;const pat=samples.slice(p,p+7).join("");
-          const ix=EAN_R.indexOf(pat);if(ix<0){ok=false;break;}right+=ix;
-        }
-        if(!ok)continue;
-        const code=String(first)+left+right;
-        if(code.length===13&&checksumEAN13(code))return code;
-      }
-    }
-  }
-  return null;
+function loadScript(src){
+ return new Promise((resolve,reject)=>{
+  const script=document.createElement("script");script.src=src;script.async=true;script.onload=()=>resolve(true);script.onerror=()=>reject(new Error("Could not load barcode decoder"));document.head.appendChild(script);
+ });
 }
-function localBarcodeDecode(video){
-  if(!video||!video.videoWidth||!video.videoHeight)return null;
-  const W=960,H=540;
-  if(eanCanvas.width!==W){eanCanvas.width=W;eanCanvas.height=H;}
-  // Center crop keeps the decoder focused on the guide box and improves laptop-camera performance.
-  const vw=video.videoWidth,vh=video.videoHeight;
-  const cropW=Math.floor(vw*0.90),cropH=Math.floor(vh*0.62);
-  const sx=Math.floor((vw-cropW)/2),sy=Math.floor((vh-cropH)/2);
-  eanCtx.drawImage(video,sx,sy,cropW,cropH,0,0,W,H);
-  const img=eanCtx.getImageData(0,0,W,H);
-  const rows=[Math.floor(H*.28),Math.floor(H*.34),Math.floor(H*.40),Math.floor(H*.46),Math.floor(H*.52),Math.floor(H*.58),Math.floor(H*.64),Math.floor(H*.70)];
-  for(const y of rows){const a=decodeEANRow(img.data,W,y,false);if(a)return a;const b=decodeEANRow(img.data,W,y,true);if(b)return b;}
-  return null;
-}
-function loadBarcodeDecoder(){
-  // Prefer the browser's native detector when present; otherwise use our local decoder.
-  if("BarcodeDetector" in window)return "native";
-  return "local";
+async function loadBarcodeDecoder(){
+ if(window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)return "zxing";
+ // Correct UMD filename for the current @zxing/browser package.
+ // The previous version used /umd/index.min.js, which is NOT the browser UMD bundle.
+ const urls=[
+  "https://cdn.jsdelivr.net/npm/@zxing/browser@0.2.1/umd/zxing-browser.min.js",
+  "https://unpkg.com/@zxing/browser@0.2.1/umd/zxing-browser.min.js"
+ ];
+ for(const u of urls){
+  try{await loadScript(u);if(window.ZXingBrowser && window.ZXingBrowser.BrowserMultiFormatReader)return "zxing";}catch(e){}
+ }
+ return "none";
 }
 async function startBarcodeCamera(){
- if(!navigator.mediaDevices?.getUserMedia){setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;}
+ if(!navigator.mediaDevices?.getUserMedia){
+   setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
+ }
  try{
-  const decoder=loadBarcodeDecoder();
-  const constraints={video:{facingMode:{exact:"user"},width:{ideal:1280},height:{ideal:720}},audio:false};
-  try{barcodeStream=await navigator.mediaDevices.getUserMedia(constraints)}catch(e){barcodeStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"user"},width:{ideal:1280},height:{ideal:720}},audio:false});}
-  barcodeVideo.srcObject=barcodeStream;await barcodeVideo.play();
-  setStatus("barcodeStatus",decoder==="native"?"Front camera ready. Scanning barcode…":"Front camera ready. Offline barcode scanner active — hold the barcode flat inside the box.",true);
-  if(decoder==="native"){
-   detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
-   barcodeTimer=setInterval(async()=>{if(!detector||!barcodeVideo.videoWidth)return;try{const codes=await detector.detect(barcodeVideo);if(codes.length&&codes[0].rawValue){currentBarcode=codes[0].rawValue.trim();if(currentBarcode){stopBarcodeCamera();await openDetailsCamera();}}}catch(e){}},220);
-  }else{
-   barcodeTimer=setInterval(async()=>{if(!barcodeVideo.videoWidth)return;const code=localBarcodeDecode(barcodeVideo);if(code){currentBarcode=code;stopBarcodeCamera();await openDetailsCamera();}},250);
+  setStatus("barcodeStatus","Connecting to the online barcode scanner…",false);
+  const decoder=await loadBarcodeDecoder();
+  if(decoder!=="zxing"){
+   setStatus("barcodeStatus","Online barcode scanner could not be loaded. Check your internet connection, then refresh the page.",false);return;
   }
- }catch(e){setStatus("barcodeStatus","Camera error: "+(e.message||e),false)}
+
+  // ZXing handles the camera stream itself. Ask specifically for the
+  // laptop's user-facing/front camera and continuously decode retail barcodes.
+  barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+  const constraints={
+   audio:false,
+   video:{
+    facingMode:{ideal:"user"},
+    width:{ideal:1280,min:640},
+    height:{ideal:720,min:480}
+   }
+  };
+
+  setStatus("barcodeStatus","Starting front laptop camera…",false);
+  barcodeControls=await barcodeReader.decodeFromConstraints(constraints,barcodeVideo,(result,error)=>{
+   if(result && result.getText){
+    const text=String(result.getText()||"").trim();
+    if(text && !currentBarcode){
+     currentBarcode=text;
+     setStatus("barcodeStatus","✓ Barcode detected: "+text,true);
+     setTimeout(async()=>{stopBarcodeCamera();await openDetailsCamera();},150);
+    }
+   }
+  });
+  setStatus("barcodeStatus","✓ Online scanner active. Put the barcode inside the box and hold it steady.",true);
+ }catch(e){
+  setStatus("barcodeStatus","Camera/scanner error: "+(e.message||e)+". Allow camera access and refresh.",false);
+  stopBarcodeCamera();
+ }
 }
 
 async function openDetailsCamera(){
