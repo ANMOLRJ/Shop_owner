@@ -98,6 +98,7 @@ try {
       <p class="muted">Verify your mobile number with a real SMS OTP. New owners can create their shop after verification.</p>
 
       <div id="phoneStep">
+        <div class="status" id="firebaseLoadStatus">Loading secure login…</div>
         <div class="field"><label>Mobile Number</label><input id="loginPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="9876543210"></div>
         <div id="recaptcha-container" style="margin:10px 0"></div>
         <button class="btn primary" id="sendOtpBtn">📲 Send OTP</button>
@@ -179,7 +180,7 @@ try {
 <section class="card hidden" id="barcodeScanner">
 <div class="step">Step 1 of 3 — Barcode Scan</div>
 <div class="camera"><video id="barcodeVideo" autoplay muted playsinline></video><div class="box"></div><div class="line"></div></div>
-<p class="muted" style="text-align:center">On mobile, the rear/back camera is used for barcode scanning. On a laptop, the available camera is used.</p>
+<p class="muted" style="text-align:center">Laptop barcode scanner uses the FRONT camera. Mobile barcode scanner uses the REAR camera.</p>
 <div class="status" id="barcodeStatus">Starting camera barcode scanner…</div>
 <div style="height:9px"></div><button class="btn" id="closeBarcode">Cancel</button>
 </section>
@@ -241,7 +242,7 @@ try {
 <section class="card hidden" id="rfidAssignCard">
   <div class="step">Step 3 of 3 — RFID Assignment</div>
   <h2 style="margin:4px 0">🏷️ Assign RFID Tag</h2>
-  <p class="muted">Product saved. You must assign <b>one unique RFID tag for every physical unit</b>. For quantity 2, scan 2 different RFID tags; for quantity 3, scan 3 different RFID tags.</p>
+  <p class="muted">Product saved. <b>RFID STATUS stays PENDING until every physical unit has its own unique RFID tag.</b> Quantity 2 = exactly 2 unique tags. Quantity 3 = exactly 3 unique tags.</p>
   <div class="pill" id="rfidAssignProduct"></div>
   <div class="status" id="rfidAssignStatus">Waiting for ESP8266 #1…</div><div class="muted small" id="rfidAssignProgress" style="margin-top:8px">0 RFID tags assigned</div>
   <div style="height:9px"></div><button class="btn" id="rfidDoneBtn">🏪 Back to Dashboard</button>
@@ -449,13 +450,13 @@ async function waitForRfidAssignment(){
    if(required>0){prog.textContent=assigned+" / "+required+" RFID tags assigned";}
    if(d.pending){
     currentAssignmentId=d.assignmentId||"";
-    st.textContent="ESP8266 #1 is waiting. Scan RFID tag "+(assigned+1)+" of "+required+" now…";
+    st.textContent="RFID STATUS: PENDING — scan tag "+(assigned+1)+" of "+required+" now.";
     st.className="status ok";
     lastAssigned=assigned;lastRequired=required;
    }else if((required>0 && remaining<=0) || (required===0 && lastRequired>0 && lastAssigned===lastRequired-1)){
     stopRfidPolling();currentAssignmentId="";
     const done=required>0?required:lastRequired;
-    st.textContent="✓ All "+done+" RFID tags assigned successfully. Product is ready for exit scanning.";
+    st.textContent="✓ RFID STATUS: ASSIGNED — all "+done+" of "+done+" tags are assigned. Product is ready for exit scanning.";
     st.className="status ok";
     prog.textContent=done+" / "+done+" RFID tags assigned — COMPLETE";
    }else{
@@ -534,71 +535,39 @@ async function loadBarcodeDecoder(){
 }
 async function startBarcodeCamera(){
   if(!navigator.mediaDevices?.getUserMedia){
-    setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
+    setStatus("barcodeStatus","Camera unavailable. Open GitHub Pages over HTTPS and allow camera access.",false);return;
   }
   try{
-    setStatus("barcodeStatus","Connecting to the online barcode scanner…",false);
+    setStatus("barcodeStatus","Connecting to online barcode scanner…",false);
     const decoder=await loadBarcodeDecoder();
     if(decoder!=="zxing"){
-      setStatus("barcodeStatus","Online barcode scanner could not be loaded. Check your internet connection, then refresh the page.",false);return;
+      setStatus("barcodeStatus","Barcode scanner library could not load. Check internet/CDN access and refresh.",false);return;
     }
-
-    barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
     const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-
-    const preferredConstraints={
-      audio:false,
-      video:{
-        facingMode:isMobile?{exact:"environment"}:{ideal:"user"},
-        width:{ideal:1280,min:640},
-        height:{ideal:720,min:480}
-      }
-    };
-    const fallbackConstraints={
-      audio:false,
-      video:{
-        facingMode:{ideal:isMobile?"environment":"user"},
-        width:{ideal:1280,min:640},
-        height:{ideal:720,min:480}
-      }
-    };
-
+    barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+    const frontLaptop={audio:false,video:{facingMode:{exact:"user"},width:{ideal:1280,min:640},height:{ideal:720,min:480}}};
+    const mobileBack={audio:false,video:{facingMode:{exact:"environment"},width:{ideal:1920,min:640},height:{ideal:1080,min:480}}};
+    const fallback={audio:false,video:{facingMode:{ideal:isMobile?"environment":"user"},width:{ideal:1280,min:640},height:{ideal:720,min:480}}};
     const startReader=async(constraints)=>{
-      barcodeControls=await barcodeReader.decodeFromConstraints(
-        constraints,barcodeVideo,(result,error)=>{
-          if(result && result.getText){
-            const text=String(result.getText()||"").trim();
-            if(text && !currentBarcode){
-              currentBarcode=text;
-              setStatus("barcodeStatus","✓ Barcode detected: "+text,true);
-              setTimeout(async()=>{stopBarcodeCamera();await openDetailsCamera();},150);
-            }
+      barcodeControls=await barcodeReader.decodeFromConstraints(constraints,barcodeVideo,(result,error)=>{
+        if(result && result.getText){
+          const text=String(result.getText()||"").trim();
+          if(text && !currentBarcode){
+            currentBarcode=text;
+            setStatus("barcodeStatus","✓ Barcode detected: "+text,true);
+            setTimeout(async()=>{stopBarcodeCamera();await openDetailsCamera();},150);
           }
         }
-      );
+      });
     };
-
-    setStatus("barcodeStatus",
-      isMobile ? "Starting rear/back mobile camera…" : "Starting laptop camera…",false);
-
-    try{
-      await startReader(preferredConstraints);
-    }catch(firstError){
-      if(isMobile){
-        stopBarcodeCamera();
-        barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
-        await startReader(fallbackConstraints);
-      }else{
-        throw firstError;
-      }
+    setStatus("barcodeStatus",isMobile?"Starting REAR mobile camera…":"Starting FRONT laptop camera…",false);
+    try{await startReader(isMobile?mobileBack:frontLaptop);}
+    catch(firstError){
+      stopBarcodeCamera();
+      barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+      await startReader(fallback);
     }
-
-    setStatus("barcodeStatus",
-      isMobile
-        ? "✓ Rear/back camera active. Put the barcode inside the box and hold it steady."
-        : "✓ Online scanner active. Put the barcode inside the box and hold it steady.",
-      true
-    );
+    setStatus("barcodeStatus",isMobile?"✓ REAR mobile camera active. Hold barcode steady inside the box.":"✓ FRONT laptop camera active. Hold barcode steady inside the box.",true);
   }catch(e){
     setStatus("barcodeStatus","Camera/scanner error: "+(e.message||e)+". Allow camera access and refresh.",false);
     stopBarcodeCamera();
@@ -609,19 +578,9 @@ async function openDetailsCamera(){
   setStatus("detailStatus","Starting camera for product details…",false);
   try{
     const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    detailStream=await navigator.mediaDevices.getUserMedia({
-      video:{
-        facingMode:{ideal:isMobile?"environment":"user"},
-        width:{ideal:1920},
-        height:{ideal:1080}
-      },
-      audio:false
-    });
+    detailStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:isMobile?"environment":"user"},width:{ideal:1920},height:{ideal:1080}},audio:false});
     detailVideo.srcObject=detailStream;await detailVideo.play();
-    setStatus("detailStatus",
-      "Ready. Put MRP/MFD/EXP text inside the box. Mobile uses the rear camera; laptops use the available camera.",
-      true
-    );
+    setStatus("detailStatus",isMobile?"✓ REAR mobile camera ready for MRP/MFD/EXP.":"✓ FRONT laptop camera ready for MRP/MFD/EXP.",true);
   }catch(e){setStatus("detailStatus","Camera error: "+e.message,false)}
 }
 document.getElementById("captureDetails").onclick=async()=>{
