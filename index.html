@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Smart Product Scanner - Single API Dashboard Checkout Fixed V25</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6fa;color:#172033;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+.app{max-width:580px;margin:auto;min-height:100vh;padding:16px}
+.card{background:#fff;border-radius:20px;padding:18px;margin-bottom:14px;box-shadow:0 7px 25px rgba(20,30,50,.08)}
+h1{font-size:25px;margin:5px 0}.sub,.muted{color:#697386}
+.btn{width:100%;padding:14px;border-radius:13px;border:1px solid #dce1e9;background:#fff;font-size:16px;font-weight:750;cursor:pointer}
+.primary{background:#172033;color:#fff;border-color:#172033}
+.camera{position:relative;aspect-ratio:3/4;border-radius:18px;overflow:hidden;background:#111}
+.camera video{width:100%;height:100%;object-fit:cover}
+.box{position:absolute;left:9%;right:9%;top:32%;height:36%;border:3px solid #fff;border-radius:16px;box-shadow:0 0 0 9999px rgba(0,0,0,.3)}
+.line{position:absolute;left:10%;right:10%;top:50%;height:2px;background:#fff;animation:scan 1.5s infinite}
+@keyframes scan{0%,100%{transform:translateY(-60px)}50%{transform:translateY(60px)}}
+.ocrbox{position:absolute;left:6%;right:6%;top:20%;height:60%;border:2px dashed #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.18)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{margin-top:11px}label{font-size:13px;font-weight:750;display:block;margin-bottom:5px}
+input,textarea{width:100%;padding:12px;border:1px solid #dce1e9;border-radius:12px;font-size:16px}
+textarea{min-height:100px;resize:vertical}
+.status{padding:11px;border-radius:12px;background:#eef2f7;margin-top:10px;font-size:14px}
+.ok{background:#e8f7ed}.bad{background:#fff0f0}
+.hidden{display:none!important}.pill{display:inline-block;background:#eef1f6;border-radius:99px;padding:5px 9px;font-size:12px;margin-top:5px}
+.item{border-top:1px solid #edf0f4;padding:12px 0}.item:first-child{border-top:0}
+.price{font-weight:800;font-size:19px}.step{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.progress{height:8px;border-radius:99px;background:#e7eaf0;overflow:hidden;margin-top:10px}
+.progressbar{height:100%;width:0%;transition:width .2s}
+.small{font-size:12px}
+
+.shop-bar{
+ position:sticky;top:0;z-index:50;
+ display:flex;align-items:center;justify-content:space-between;gap:10px;
+ padding:10px 14px;background:#fff;border-bottom:1px solid #ddd;
+}
+.shop-id{font-size:12px;color:#777;flex:1}
+.small-btn{padding:7px 11px!important;font-size:12px!important}
+.login-card{max-width:520px;margin:30px auto}
+.hidden{display:none!important}
+
+.screen{display:none}.screen.active{display:block}
+#loginScreen{min-height:100vh;padding:30px 16px;background:#f4f6fa}
+.login-wrap{max-width:580px;margin:auto}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:#fff;border-radius:16px;padding:15px;box-shadow:0 5px 18px rgba(20,30,50,.07)}
+.stat b{display:block;font-size:24px;margin-top:3px}
+.dashboard-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.product-row{border-top:1px solid #edf0f4;padding:13px 0}
+.product-row:first-child{border-top:0}
+.row-actions{display:flex;gap:7px;margin-top:9px}
+.row-actions button{flex:1}
+.top-user{font-size:13px;color:#697386;margin-top:5px}
+@media(max-width:430px){.dashboard-actions{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}}
+</style>
+
+<!-- Firebase Phone Authentication -->
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-auth-compat.js"></script>
+<script>
+// IMPORTANT: Replace these values with the Firebase Web App config from your Firebase Console.
+const firebaseConfig = {
+  apiKey: "AIzaSyCYvDltf4-692M3c9aj31Gs8u9PtcCFJmw",
+  authDomain: "shopownwer.firebaseapp.com",
+  projectId: "shopownwer",
+  storageBucket: "shopownwer.firebasestorage.app",
+  messagingSenderId: "72312473452",
+  appId: "1:72312473452:web:5353a9163b31e35cd7d549",
+  measurementId: "G-Z3P3SFW6V5"
+};
+let firebaseReady = false;
+try {
+  if (!firebaseConfig.apiKey.startsWith("YOUR_")) {
+    firebase.initializeApp(firebaseConfig);
+    firebase.auth().languageCode = "en";
+    firebaseReady = true;
+  }
+} catch(e) { console.error("Firebase initialization failed", e); }
+</script>
+<!-- Browser barcode decoder fallback: ZXing -->
+<script src="https://unpkg.com/@zxing/browser@0.2.1/umd/zxing-browser.min.js"></script>
+<!-- Free/open-source browser OCR: Tesseract.js -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+<div id="shopBar" class="shop-bar hidden">
+  <span>🏪 <b id="currentShopName">Shop</b></span>
+  <span class="shop-id" id="currentShopId"></span>
+  <button id="logoutBtn" class="secondary small-btn">Logout</button>
+</div>
+
+<section id="loginScreen" class="screen active">
+  <div class="login-wrap">
+    <div class="card login-card">
+      <div class="step">Secure Shop Owner Login</div>
+      <h1 style="margin:6px 0 4px">🏪 Shop Owner Login</h1>
+      <p class="muted">Verify your mobile number with a real SMS OTP. New owners can create their shop after verification.</p>
+
+      <div id="phoneStep">
+        <div class="field"><label>Mobile Number</label><input id="loginPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="9876543210"></div>
+        <div id="recaptcha-container" style="margin:10px 0"></div>
+        <button class="btn primary" id="sendOtpBtn">📲 Send OTP</button>
+      </div>
+
+      <div id="otpStep" class="hidden">
+        <div class="field"><label>6-digit OTP</label><input id="otpCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
+        <button class="btn primary" id="verifyOtpBtn">✅ Verify OTP</button>
+        <button class="btn" id="changePhoneBtn" style="margin-top:8px">← Change Number</button>
+      </div>
+
+      <div id="profileStep" class="hidden">
+        <div class="status ok" style="margin-bottom:10px">✓ Mobile number verified</div>
+        <div class="field"><label>Owner Name</label><input id="loginName" autocomplete="name" placeholder="Your name"></div>
+        <div class="field"><label>Email (optional)</label><input id="loginEmail" type="email" autocomplete="email" placeholder="owner@example.com"></div>
+        <div class="field"><label>Shop Name</label><input id="loginShopName" autocomplete="organization" placeholder="My Shop"></div>
+        <button class="btn primary" id="finishLoginBtn">🏪 Continue to Shop</button>
+      </div>
+
+      <div class="status" id="loginStatus" style="margin-top:10px">Enter your mobile number to receive an OTP.</div>
+      <p class="muted small" style="margin-top:10px">SMS OTP is handled by Firebase Authentication. Standard SMS charges/limits may apply.</p>
+    </div>
+  </div>
+</section>
+
+<div class="app">
+<header>
+<h1>📦 Smart Product Scanner</h1>
+<div class="sub">Barcode scan + improved free OCR for MRP, MFD and EXP.</div>
+</header>
+
+
+<section class="card hidden" id="dashboard">
+  <div class="step">Shop Dashboard</div>
+  <h2 id="dashTitle" style="margin:4px 0">My Shop</h2>
+  <div class="top-user" id="dashOwner"></div>
+  <div style="height:12px"></div>
+  <div class="stat-grid">
+    <div class="stat"><span class="muted small">Products</span><b id="statProducts">0</b></div>
+    <div class="stat"><span class="muted small">Sales</span><b id="statSales">0</b></div>
+    <div class="stat"><span class="muted small">Units Sold</span><b id="statUnits">0</b></div>
+    <div class="stat"><span class="muted small">Sales Amount</span><b id="statAmount">₹0</b></div>
+  </div>
+  <div style="height:12px"></div>
+  <div class="grid">
+    <div class="field"><label>Number of Exit Doors</label><input id="exitCountInput" type="number" min="1" max="20" value="1"></div>
+    <div style="display:flex;align-items:end"><button class="btn" id="saveExitCount">💾 Save Exit Count</button></div>
+  </div>
+  <div class="muted small">Configure how many exit ESP32 readers this shop uses. ESP8266 #2 can be Exit 1, ESP8266 #3 can be Exit 2, and so on.</div>
+  <div style="height:12px"></div>
+  <div class="dashboard-actions">
+    <button class="btn primary" id="dashScan">📷 Add Product by Scan</button>
+    <button class="btn" id="dashRefresh">🔄 Refresh Dashboard</button>
+  </div>
+</section>
+
+<section class="card hidden" id="exitCard">
+  <div class="step">Exit / Checkout</div>
+  <h2 style="margin:4px 0">🚪 Detected Products</h2>
+  <div class="muted small">Products detected by ESP8266 exit readers appear here. Remove a wrongly detected product or mark selected products as paid.</div>
+  <div id="exitList" style="margin-top:10px"></div>
+  <div class="checkout-total" style="font-size:20px;font-weight:700;margin-top:12px">Total: ₹<span id="exitTotal">0.00</span></div>
+  <button class="btn primary" id="payExitBtn" style="margin-top:10px">💳 PAID — Generate Bill</button>
+  <div class="status hidden" id="billStatus"></div>
+</section>
+
+<section class="card hidden" id="productListCard">
+  <strong>My Shop Products</strong>
+  <div class="muted small" style="margin:4px 0 8px">Only products belonging to the logged-in shop are shown here. RFID status is shown after assignment.</div>
+  <div id="productList"></div>
+</section>
+<section class="card hidden" id="home">
+<button class="btn primary" id="start">📷 Start Scanning</button>
+<p class="muted small">Step 1 scans the barcode. Step 2 opens the camera again and uses enhanced Tesseract OCR with image preprocessing and multiple OCR passes to read package text.</p>
+<div style="height:9px"></div>
+<button class="btn" id="manual">⌨️ Enter Barcode Manually</button>
+</section>
+
+<section class="card hidden" id="barcodeScanner">
+<div class="step">Step 1 of 3 — Barcode Scan</div>
+<div class="camera"><video id="barcodeVideo" autoplay muted playsinline></video><div class="box"></div><div class="line"></div></div>
+<p class="muted" style="text-align:center">Use the front-facing laptop camera and point it at the barcode.</p>
+<div class="status" id="barcodeStatus">Starting front camera barcode scanner…</div>
+<div style="height:9px"></div><button class="btn primary" id="captureBarcode">📸 Capture & Scan Now</button><div style="height:9px"></div><button class="btn" id="closeBarcode">Cancel</button>
+</section>
+
+<section class="card hidden" id="detailScanner">
+<div class="step">Step 2 of 3 — MRP / MFD / EXP</div>
+<div class="camera"><video id="detailVideo" autoplay muted playsinline></video><div class="ocrbox"></div></div>
+<p class="muted" style="text-align:center">Place MRP/MFD/EXP clearly inside the box. Keep the text flat, close and well lit, then tap Capture & Read.</p>
+<div class="status" id="detailStatus">Starting front camera for product details…</div>
+<div style="height:9px"></div>
+<button class="btn primary" id="captureDetails">📸 Capture & Read Text</button>
+<div style="height:9px"></div>
+<button class="btn" id="skipDetails">Skip OCR / Enter Manually</button>
+</section>
+
+<section class="card hidden" id="ocrProgress">
+<strong>Reading package text…</strong>
+<div class="status" id="ocrStatus">Starting OCR…</div>
+<div class="progress"><div class="progressbar" id="ocrBar"></div></div>
+<p class="muted small">Tesseract OCR runs in the browser. No paid OCR API is required.</p>
+</section>
+
+<section class="card hidden" id="manualCard">
+<label>Barcode</label><input id="barcodeInput" inputmode="numeric" placeholder="Enter barcode">
+<div style="height:10px"></div><button class="btn primary" id="continueManual">Continue to Details Camera</button>
+<div style="height:9px"></div><button class="btn" id="cancelManual">Cancel</button>
+</section>
+
+<section class="card hidden" id="product">
+<strong>Product Details</strong><div class="pill" id="barcodeLabel"></div>
+
+<div class="field"><label>Product Name</label><input id="name"></div>
+<div class="field"><label>Brand</label><input id="brand"></div>
+<div class="field"><label>Category</label><input id="category"></div>
+
+<div class="grid">
+<div class="field"><label>MRP (₹)</label><input id="mrp" inputmode="decimal" placeholder="e.g. 120"></div>
+<div class="field"><label>Selling Price (₹)</label><input id="sellingPrice" inputmode="decimal" placeholder="e.g. 110"></div>
+</div>
+
+<div class="grid">
+<div class="field"><label>Manufacturing Date</label><input id="mfd" placeholder="MM/YYYY or DD/MM/YYYY"></div>
+<div class="field"><label>Expiry Date</label><input id="exp" placeholder="MM/YYYY or DD/MM/YYYY"></div>
+</div>
+
+<div class="field"><label>Quantity</label><input id="qty" type="number" min="1" value="1"></div>
+
+<div class="field"><label>OCR Text (for verification)</label><textarea id="ocrText" placeholder="Recognized package text appears here…"></textarea></div>
+
+<div class="status" id="ocrResultStatus">Check the extracted values before saving. OCR can make mistakes on curved, shiny or blurry packaging.</div>
+<div style="height:9px"></div>
+<button class="btn primary" id="save">💾 Save to Google Sheet</button>
+<div style="height:9px"></div>
+<button class="btn" id="scanAgain">📷 Scan Another Product</button>
+<button class="btn" id="backDashboard">🏪 Back to Dashboard</button>
+<div class="status hidden" id="saveStatus"></div>
+</section>
+
+<section class="card hidden" id="rfidAssignCard">
+  <div class="step">Step 3 of 3 — RFID Assignment</div>
+  <h2 style="margin:4px 0">🏷️ Assign RFID Tag</h2>
+  <p class="muted">Product saved. ESP8266 #1 + RC522 is waiting for this product. Scan one RFID tag on the RC522 reader.</p>
+  <div class="pill" id="rfidAssignProduct"></div>
+  <div class="status" id="rfidAssignStatus">Waiting for ESP8266 #1…</div>
+  <div style="height:9px"></div><button class="btn" id="rfidDoneBtn">🏪 Back to Dashboard</button>
+</section>
+
+<section class="card hidden" id="recentCard"><strong>Recent scans</strong><div id="history" style="margin-top:8px"></div></section>
+</div>
+
+<canvas id="captureCanvas" class="hidden"></canvas>
+
+<script>
+
+const AUTH_KEY="barcodeScannerShopAuthV8";
+let confirmationResult=null;
+let recaptchaVerifier=null;
+function getAuth(){try{return JSON.parse(localStorage.getItem(AUTH_KEY)||"null")}catch(e){return null}}
+function setAuth(u){localStorage.setItem(AUTH_KEY,JSON.stringify(u))}
+function clearAuth(){localStorage.removeItem(AUTH_KEY)}
+function showLogin(){
+ stopExitPolling();stopRfidPolling();
+ document.getElementById("loginScreen").classList.add("active");
+ ["home","dashboard","productListCard","recentCard","exitCard","rfidAssignCard","shopBar"].forEach(id=>document.getElementById(id)?.classList.add("hidden"));
+}
+function showApp(){
+ const a=getAuth(); if(!a){showLogin();return false}
+ document.getElementById("loginScreen").classList.remove("active");
+ document.getElementById("shopBar").classList.remove("hidden");
+ document.getElementById("currentShopName").textContent=a.shopName||"Shop";
+ document.getElementById("currentShopId").textContent=a.shopId||"";
+ document.getElementById("home").classList.add("hidden");
+ document.getElementById("dashboard").classList.remove("hidden");
+ document.getElementById("productListCard").classList.remove("hidden");
+ document.getElementById("recentCard").classList.remove("hidden");
+ document.getElementById("exitCard").classList.remove("hidden");
+ loadDashboard();
+ startExitPolling(); return true;
+}
+function normalizePhoneInput(v){
+ let p=String(v||"").replace(/[^0-9+]/g,"");
+ if(p.startsWith("0"))p="+91"+p.slice(1); else if(!p.startsWith("+"))p="+91"+p;
+ return p;
+}
+function setLoginStatus(msg,kind=""){const st=document.getElementById("loginStatus");st.textContent=msg;st.className="status "+kind;}
+function initRecaptcha(){
+ if(!firebaseReady) throw new Error("Firebase is not configured. Open index.html and add your Firebase Web App config.");
+ if(recaptchaVerifier){try{recaptchaVerifier.clear()}catch(e){}}
+ recaptchaVerifier=new firebase.auth.RecaptchaVerifier("recaptcha-container",{size:"normal",callback:function(){}});
+ recaptchaVerifier.render();
+}
+async function sendOtp(){
+ const phone=normalizePhoneInput(document.getElementById("loginPhone").value);
+ if(!/^\+91[6-9]\d{9}$/.test(phone)){setLoginStatus("Enter a valid Indian mobile number, e.g. 9876543210.","bad");return}
+ if(!firebaseReady){setLoginStatus("Firebase is not configured yet. Add the Firebase Web App config in index.html.","bad");return}
+ const btn=document.getElementById("sendOtpBtn");btn.disabled=true;setLoginStatus("Sending OTP…");
+ try{
+  if(!recaptchaVerifier)initRecaptcha();
+  confirmationResult=await firebase.auth().signInWithPhoneNumber(phone,recaptchaVerifier);
+  document.getElementById("phoneStep").classList.add("hidden");
+  document.getElementById("otpStep").classList.remove("hidden");
+  setLoginStatus("OTP sent to "+phone+". Enter the 6-digit code.","ok");
+  document.getElementById("otpCode").focus();
+ }catch(e){
+  console.error(e);setLoginStatus("Could not send OTP: "+(e.message||e),"bad");
+  try{if(recaptchaVerifier)recaptchaVerifier.clear();}catch(x){} recaptchaVerifier=null;
+ }finally{btn.disabled=false}
+}
+async function verifyOtp(){
+ const code=document.getElementById("otpCode").value.trim();
+ if(!confirmationResult){setLoginStatus("Please request a new OTP.","bad");return}
+ if(!/^\d{6}$/.test(code)){setLoginStatus("Enter the 6-digit OTP.","bad");return}
+ const btn=document.getElementById("verifyOtpBtn");btn.disabled=true;setLoginStatus("Verifying OTP…");
+ try{
+  const result=await confirmationResult.confirm(code);
+  const user=result.user;
+  window.verifiedFirebaseUser=user;
+  document.getElementById("phoneStep").classList.add("hidden");
+  document.getElementById("otpStep").classList.add("hidden");
+  document.getElementById("profileStep").classList.remove("hidden");
+  setLoginStatus("Mobile verified. Complete your shop details.","ok");
+ }catch(e){setLoginStatus("Invalid OTP or verification failed: "+(e.message||e),"bad");}
+ finally{btn.disabled=false}
+}
+async function apiJsonResponse(response){
+  const text=await response.text();
+  const trimmed=String(text||"").trim();
+  if(!trimmed) throw new Error("Server returned an empty response (HTTP "+response.status+"). Check the Apps Script deployment.");
+  try{return JSON.parse(trimmed);}
+  catch(err){
+    if(trimmed.startsWith("<!DOCTYPE")||trimmed.startsWith("<html")||trimmed.startsWith("<HTML")){
+      throw new Error("Apps Script returned an HTML page instead of JSON. Make sure the web app deployment is set to ‘Execute as Me’ and ‘Anyone’, then update the existing deployment to the latest version.");
+    }
+    throw new Error("Invalid server response: "+trimmed.slice(0,160));
+  }
+}
+function formBody(obj){
+  const params=new URLSearchParams();
+  Object.keys(obj||{}).forEach(k=>{
+    const v=obj[k];
+    if(v!==undefined&&v!==null) params.append(k, typeof v==="object" ? JSON.stringify(v) : String(v));
+  });
+  return params;
+}
+
+async function finishLogin(){
+ const user=window.verifiedFirebaseUser || firebase.auth().currentUser;
+ if(!user){setLoginStatus("Please verify your mobile number first.","bad");return}
+ const name=document.getElementById("loginName").value.trim();
+ const email=document.getElementById("loginEmail").value.trim().toLowerCase();
+ const shopName=document.getElementById("loginShopName").value.trim();
+ if(!name||!shopName){setLoginStatus("Enter owner name and shop name.","bad");return}
+ const btn=document.getElementById("finishLoginBtn");btn.disabled=true;setLoginStatus("Opening your shop…");
+ try{
+  const loginData={action:"loginFirebase",firebaseUid:user.uid,phone:user.phoneNumber,email,name,shopName};
+  let d;
+  try{
+   // Use a simple form POST so GitHub Pages -> Apps Script stays CORS-simple.
+   const r=await fetch(API_URL,{method:"POST",body:formBody(loginData)});
+   d=await apiJsonResponse(r);
+  }catch(postErr){
+   // Fallback for deployments/proxies that return an HTML redirect for POST.
+   // V22 backend supports the same login action through GET.
+   try{
+    const qs=new URLSearchParams(loginData).toString();
+    const r2=await fetch(API_URL+"?"+qs,{cache:"no-store"});
+    d=await apiJsonResponse(r2);
+   }catch(getErr){throw postErr;}
+  }
+  if(!d.ok)throw new Error(d.error||"Login failed");
+  setAuth(d.user);setLoginStatus("Login successful.","ok");showApp();
+ }catch(e){setLoginStatus("Login error: "+e.message,"bad")}
+ finally{btn.disabled=false}
+}
+function resetLogin(){
+ confirmationResult=null;window.verifiedFirebaseUser=null;
+ document.getElementById("phoneStep").classList.remove("hidden");
+ document.getElementById("otpStep").classList.add("hidden");
+ document.getElementById("profileStep").classList.add("hidden");
+ document.getElementById("otpCode").value="";setLoginStatus("Enter your mobile number to receive an OTP.");
+ try{if(recaptchaVerifier)recaptchaVerifier.clear()}catch(e){}recaptchaVerifier=null;
+}
+async function loadDashboard(){
+ const a=getAuth();if(!a)return false;
+ const refresh=document.getElementById("dashRefresh");
+ if(refresh) refresh.disabled=true;
+ try{
+  // Dashboard is read-only and always uses GET on the current single deployment.
+  const url=API_URL+"?action=dashboard&shopId="+encodeURIComponent(a.shopId)+"&_="+Date.now();
+  const r=await fetch(url,{cache:"no-store"});
+  const d=await apiJsonResponse(r);
+  if(!d.ok)throw new Error(d.error||"Dashboard failed");
+
+  document.getElementById("dashTitle").textContent=d.shopName||a.shopName||"My Shop";
+  document.getElementById("dashOwner").textContent=(a.name||"Owner")+" · "+(a.email||a.phone||"");
+  document.getElementById("statProducts").textContent=Number(d.stats?.products||0);
+  document.getElementById("statSales").textContent=Number(d.stats?.salesCount||0);
+  document.getElementById("statUnits").textContent=Number(d.stats?.salesUnits||0);
+  document.getElementById("statAmount").textContent="₹"+Number(d.stats?.salesAmount||0).toFixed(2);
+  document.getElementById("exitCountInput").value=d.exitCount||1;
+  renderProducts(d.products||[]);
+  return true;
+ }catch(e){
+  document.getElementById("productList").innerHTML='<div class="status bad">Dashboard error: '+esc(e.message||e)+'</div>';
+  return false;
+ }finally{
+  if(refresh) refresh.disabled=false;
+ }
+}
+function renderProducts(items){
+ const el=document.getElementById("productList");
+ if(!items.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products in this shop yet. Use Add Product by Scan.</div>';return}
+ el.innerHTML=items.map(p=>`
+ <div class="product-row">
+  <strong>${esc(p.name||"Unnamed product")}</strong>
+  <div class="muted small">${esc(p.barcode)} · Stock: <b>${p.quantity}</b></div>
+  <div>${p.mrp?"MRP ₹"+esc(p.mrp):""}${p.sellingPrice?" · Sell ₹"+esc(p.sellingPrice):""}</div>
+  <div class="muted small">${p.mfd?"MFD "+esc(p.mfd):""}${p.exp?" · EXP "+esc(p.exp):""}</div><div class="muted small">RFID: ${p.rfidUid?esc(p.rfidUid):"Not assigned"} · ${esc(p.rfidStatus||"PENDING")}</div>
+  <div class="row-actions">
+   <button class="btn" onclick="sellProduct('${encodeURIComponent(p.barcode)}')">🧾 Sell 1</button>
+   <button class="btn" onclick="deleteProduct('${encodeURIComponent(p.barcode)}')">🗑️ Delete</button>
+  </div>
+ </div>`).join("");
+}
+async function deleteProduct(encoded){
+ const barcode=decodeURIComponent(encoded);const a=getAuth();
+ if(!confirm("Delete "+barcode+" from "+a.shopName+"?"))return;
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"deleteProduct",shopId:a.shopId,barcode})});
+  const d=await apiJsonResponse(r);if(!d.ok)throw new Error(d.error||"Delete failed");
+  loadDashboard();
+ }catch(e){alert(e.message)}
+}
+async function sellProduct(encoded){
+ const barcode=decodeURIComponent(encoded),a=getAuth();
+ const q=prompt("Quantity to sell","1");if(q===null)return;
+ const qty=Math.max(1,Number(q)||1);
+ try{
+  const r=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+   body:JSON.stringify({action:"recordSale",shopId:a.shopId,shopName:a.shopName,userId:a.userId,barcode,quantity:qty})});
+  const d=await apiJsonResponse(r);if(!d.ok)throw new Error(d.error||"Sale failed");
+  alert("Sale recorded. Total: ₹"+Number(d.total||0).toFixed(2));
+  loadDashboard();
+ }catch(e){alert(e.message)}
+}
+function requireAuth(){return !!getAuth()&&showApp()}
+document.addEventListener("DOMContentLoaded",()=>{
+ document.getElementById("sendOtpBtn")?.addEventListener("click",sendOtp);
+ document.getElementById("verifyOtpBtn")?.addEventListener("click",verifyOtp);
+ document.getElementById("finishLoginBtn")?.addEventListener("click",finishLogin);
+ document.getElementById("changePhoneBtn")?.addEventListener("click",resetLogin);
+ document.getElementById("logoutBtn")?.addEventListener("click",async()=>{clearAuth();try{await firebase.auth().signOut()}catch(e){}location.reload()});
+ document.getElementById("dashScan")?.addEventListener("click",()=>{
+   document.getElementById("dashboard").classList.add("hidden");
+   document.getElementById("productListCard").classList.add("hidden");
+   document.getElementById("home").classList.remove("hidden");
+   document.getElementById("start").click();
+ });
+ document.getElementById("dashRefresh")?.addEventListener("click",()=>loadDashboard());
+ if(getAuth()){showApp();startDashboardAutoRefresh();}else showLogin();
+});
+
+let rfidPollTimer=null, exitPollTimer=null, currentAssignmentId="";
+async function apiPost(obj){
+ const r=await fetch(API_URL,{method:"POST",body:formBody(obj),cache:"no-store"});
+ return apiJsonResponse(r);
+}
+async function loadExitEvents(){const a=getAuth();if(!a)return;try{const r=await fetch(API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId));const d=await apiJsonResponse(r);if(d.ok)renderExitEvents(d.events||[])}catch(e){}}
+function renderExitEvents(events){const el=document.getElementById("exitList"), total=events.reduce((s,x)=>s+Number(x.price||0),0);document.getElementById("exitTotal").textContent=total.toFixed(2);if(!events.length){el.innerHTML='<div class="muted" style="padding:12px 0">No products waiting at an exit.</div>';return}el.innerHTML=events.map(x=>`<div class="product-row"><strong>${esc(x.productName||"Unnamed")}</strong><div class="muted small">Exit ${x.exitNo} · RFID ${esc(x.rfidUid)} · ${esc(x.barcode)}</div><div>₹${Number(x.price||0).toFixed(2)}</div><button class="btn" onclick="removeExitEvent('${encodeURIComponent(x.eventId)}')">🗑️ Remove</button></div>`).join("")}
+async function removeExitEvent(encoded){const a=getAuth();const id=decodeURIComponent(encoded);if(!confirm("Remove this detected product from checkout?"))return;const d=await apiPost({action:"removeExitEvent",shopId:a.shopId,eventId:id});if(!d.ok)alert(d.error||"Could not remove");loadExitEvents()}
+async function payExitEvents(){
+ const a=getAuth();
+ const btn=document.getElementById("payExitBtn");
+ const st=document.getElementById("billStatus");
+
+ if(!a){alert("Please login again.");return}
+ if(!btn||btn.disabled)return;
+
+ btn.disabled=true;
+ const oldText=btn.textContent;
+ btn.textContent="⏳ Processing payment...";
+ st.textContent="Processing checkout…";
+ st.className="status";
+ st.classList.remove("hidden");
+
+ try{
+  stopExitPolling();
+
+  // Get the exact current waiting events first.
+  const eventsUrl=API_URL+"?action=exitEvents&shopId="+encodeURIComponent(a.shopId)+"&_="+Date.now();
+  const r=await fetch(eventsUrl,{cache:"no-store"});
+  const d=await apiJsonResponse(r);
+
+  if(!d.ok)throw new Error(d.error||"Could not load checkout items");
+
+  const events=(d.events||[]);
+  const ids=events.map(x=>String(x.eventId||"")).filter(Boolean);
+
+  if(!ids.length)throw new Error("No products waiting for payment.");
+
+  const expectedTotal=events.reduce((s,x)=>s+Number(x.price||0),0);
+
+  const payload={
+    action:"payExitEvents",
+    shopId:a.shopId,
+    shopName:a.shopName||"",
+    userId:a.userId,
+    eventIds:ids
+  };
+
+  let p;
+
+  // Normal path: POST.
+  try{
+    p=await apiPost(payload);
+  }catch(postErr){
+    // Apps Script web-app POST can sometimes return an HTML redirect/login
+    // page in a browser. Fall back to the same backend action through GET.
+    const qs=new URLSearchParams({
+      action:"payExitEvents",
+      shopId:a.shopId,
+      shopName:a.shopName||"",
+      userId:a.userId,
+      eventIds:JSON.stringify(ids),
+      _:String(Date.now())
+    }).toString();
+
+    const gr=await fetch(API_URL+"?"+qs,{cache:"no-store"});
+    p=await apiJsonResponse(gr);
+  }
+
+  if(!p.ok)throw new Error(p.error||"Payment failed");
+
+  st.textContent="✅ PAID — Bill generated. Total: ₹"+Number(p.total||expectedTotal).toFixed(2)+" | Items: "+(p.saleIds||[]).length;
+  st.className="status ok";
+
+  // Wait for both UI sections to update.
+  await loadExitEvents();
+  await loadDashboard();
+
+ }catch(e){
+  st.textContent="Checkout error: "+(e.message||e);
+  st.className="status bad";
+  alert("Checkout failed: "+(e.message||e));
+ }finally{
+  btn.disabled=false;
+  btn.textContent=oldText;
+  startExitPolling();
+ }
+}
+async function saveExitCount(){const a=getAuth();const n=Math.max(1,Math.min(20,Number(document.getElementById("exitCountInput").value)||1));try{const d=await apiPost({action:"updateExitCount",shopId:a.shopId,exitCount:n});if(!d.ok)throw new Error(d.error||"Could not update");document.getElementById("exitCountInput").value=d.exitCount;alert("Exit count updated to "+d.exitCount)}catch(e){alert(e.message)}}
+function startExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);loadExitEvents();exitPollTimer=setInterval(loadExitEvents,2500)}
+function stopExitPolling(){if(exitPollTimer)clearInterval(exitPollTimer);exitPollTimer=null}
+let dashboardRefreshTimer=null;
+function startDashboardAutoRefresh(){
+ if(dashboardRefreshTimer)clearInterval(dashboardRefreshTimer);
+ dashboardRefreshTimer=setInterval(()=>{
+   const btn=document.getElementById("payExitBtn");
+   if(!btn||!btn.disabled) loadDashboard();
+ },5000);
+}
+
+async function waitForRfidAssignment(){
+ const a=getAuth();if(!a)return;
+ const st=document.getElementById("rfidAssignStatus");
+ if(rfidPollTimer)clearInterval(rfidPollTimer);
+ async function poll(){
+  try{
+   const r=await fetch(API_URL+"?action=rfidPending&shopId="+encodeURIComponent(a.shopId)+"&shopName="+encodeURIComponent(a.shopName),{cache:"no-store"});
+   const d=await apiJsonResponse(r);
+   if(d.pending){
+    currentAssignmentId=d.assignmentId||"";
+    const q=Number(d.quantity||0), assigned=Number(d.assignedCount||0), remaining=Number(d.remainingCount||0);
+    if(q>0){
+     st.textContent="ESP8266 #1 ready — RFID "+Math.min(assigned+1,q)+" of "+q+" required. "+(remaining>0?remaining+" tag(s) remaining.":"All tags assigned.");
+    }else{
+     st.textContent="ESP8266 #1 is ready. Scan RFID tag now…";
+    }
+    st.className="status ok";
+   }else{
+    st.textContent="Waiting for ESP8266 #1 / next RFID assignment…";
+    st.className="status";
+   }
+  }catch(e){
+   st.textContent="Waiting for RFID reader connection…";
+   st.className="status bad";
+  }
+ }
+ poll();
+ rfidPollTimer=setInterval(poll,1500);
+}
+function stopRfidPolling(){if(rfidPollTimer)clearInterval(rfidPollTimer);rfidPollTimer=null}
+
+const API_URL="https://script.google.com/macros/s/AKfycbw_nsaUJCeb74dt3KhQEuFGmEzZ1zH_WkGJRL4IOhUJ9168hZYly8JpZC7Rsgc1rX9-Ww/exec";
+
+if(firebaseReady){ firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error); }
+
+const home=document.getElementById("home");
+const barcodeScanner=document.getElementById("barcodeScanner");
+const detailScanner=document.getElementById("detailScanner");
+const manualCard=document.getElementById("manualCard");
+const product=document.getElementById("product");
+const ocrProgress=document.getElementById("ocrProgress");
+
+const barcodeVideo=document.getElementById("barcodeVideo");
+const detailVideo=document.getElementById("detailVideo");
+const captureCanvas=document.getElementById("captureCanvas");
+
+let barcodeStream=null,detailStream=null,detector=null,barcodeTimer=null,barcodeReader=null,barcodeControls=null;
+let barcodeCanvas=null,barcodeScanBusy=false,barcodeLastError="",nativeBarcodeTimer=null,barcodeOcrTimer=null,barcodeOcrBusy=false,barcodeOcrWorker=null;
+let currentBarcode="",barcodeSource="camera",detailsSource="ocr",ocrText="";
+let history=JSON.parse(localStorage.getItem("barcodeHistoryV8")||"[]");
+
+function hideAll(){
+ [barcodeScanner,detailScanner,manualCard,product,ocrProgress].forEach(x=>x.classList.add("hidden"));
+}
+function stopBarcodeCamera(){
+ if(barcodeTimer){clearInterval(barcodeTimer);barcodeTimer=null;}
+ if(nativeBarcodeTimer){clearInterval(nativeBarcodeTimer);nativeBarcodeTimer=null;}
+ if(barcodeOcrTimer){clearTimeout(barcodeOcrTimer);barcodeOcrTimer=null;}
+ if(barcodeControls){try{barcodeControls.stop()}catch(e){}barcodeControls=null;}
+ if(barcodeReader){try{barcodeReader.reset()}catch(e){}barcodeReader=null;}
+ if(barcodeStream){barcodeStream.getTracks().forEach(t=>t.stop());barcodeStream=null;}
+ barcodeVideo.srcObject=null;
+}
+function stopDetailCamera(){
+ if(detailStream){detailStream.getTracks().forEach(t=>t.stop());detailStream=null}
+ detailVideo.srcObject=null;
+}
+function stopAll(){stopBarcodeCamera();stopDetailCamera()}
+
+function setStatus(id,text,ok){
+ const el=document.getElementById(id);
+ el.textContent=text;
+ el.className="status "+(ok?"ok":"bad");
+}
+
+function getBarcodeFormats(){
+ if(!window.ZXingBrowser||!ZXingBrowser.BarcodeFormat)return null;
+ const F=ZXingBrowser.BarcodeFormat;
+ return [F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_128,F.CODE_39,F.CODE_93,F.ITF,F.CODABAR,F.RSS_14,F.RSS_EXPANDED].filter(Boolean);
+}
+
+function barcodeSuccess(text){
+ if(!text||barcodeScanBusy)return;
+ const value=String(text).trim();
+ if(!value)return;
+ barcodeScanBusy=true;
+ currentBarcode=value;
+ barcodeSource="camera";
+ setStatus("barcodeStatus","Barcode detected: "+value+" — opening product details…",true);
+ stopBarcodeCamera();
+ setTimeout(()=>openDetailsCamera(),150);
+}
+
+async function applyCameraOptimization(){
+ try{
+  const track=barcodeStream?.getVideoTracks?.()[0];
+  if(!track)return;
+  const caps=track.getCapabilities?track.getCapabilities():{};
+  const advanced=[];
+  if(caps.focusMode && caps.focusMode.includes("continuous")) advanced.push({focusMode:"continuous"});
+  if(caps.exposureMode && caps.exposureMode.includes("continuous")) advanced.push({exposureMode:"continuous"});
+  if(caps.whiteBalanceMode && caps.whiteBalanceMode.includes("continuous")) advanced.push({whiteBalanceMode:"continuous"});
+  // Some webcams expose digital zoom. A modest zoom makes the barcode occupy more pixels.
+  if(caps.zoom){
+   const z=Math.min(caps.max||2, Math.max(caps.min||1, 1.6));
+   if(z>1) advanced.push({zoom:z});
+  }
+  if(advanced.length) await track.applyConstraints({advanced});
+ }catch(e){console.debug("Camera optimization skipped",e)}
+}
+
+function prepareBarcodeCanvas(sourceCanvas, sx, sy, sw, sh, scale, mode){
+ const c=document.createElement("canvas");
+ c.width=Math.max(640,Math.floor(sw*scale));
+ c.height=Math.max(360,Math.floor(sh*scale));
+ const ctx=c.getContext("2d",{willReadFrequently:true});
+ ctx.imageSmoothingEnabled=true;
+ ctx.imageSmoothingQuality="high";
+ ctx.drawImage(sourceCanvas,sx,sy,sw,sh,0,0,c.width,c.height);
+ if(mode){
+  const img=ctx.getImageData(0,0,c.width,c.height), d=img.data;
+  for(let i=0;i<d.length;i+=4){
+   let y=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]);
+   if(mode==="contrast") y=Math.max(0,Math.min(255,(y-128)*1.8+128));
+   if(mode==="threshold") y=y>150?255:0;
+   d[i]=d[i+1]=d[i+2]=y;
+  }
+  ctx.putImageData(img,0,0);
+ }
+ return c;
+}
+
+async function decodeBarcodeFrame(){
+ if(barcodeScanBusy||!barcodeVideo.videoWidth||!barcodeVideo.videoHeight)return false;
+ if(!window.ZXingBrowser)return false;
+ try{
+  if(!barcodeCanvas)barcodeCanvas=document.createElement("canvas");
+  const w=barcodeVideo.videoWidth,h=barcodeVideo.videoHeight;
+  barcodeCanvas.width=w;barcodeCanvas.height=h;
+  const bctx=barcodeCanvas.getContext("2d",{willReadFrequently:true});
+  bctx.drawImage(barcodeVideo,0,0,w,h);
+  const regions=[
+   [0,0,w,h,1.0,""],
+   [Math.floor(w*.06),Math.floor(h*.22),Math.floor(w*.88),Math.floor(h*.56),1.6,""],
+   [Math.floor(w*.04),Math.floor(h*.28),Math.floor(w*.92),Math.floor(h*.40),2.0,""],
+   [Math.floor(w*.06),Math.floor(h*.22),Math.floor(w*.88),Math.floor(h*.56),1.8,"contrast"],
+   [Math.floor(w*.04),Math.floor(h*.28),Math.floor(w*.92),Math.floor(h*.40),2.0,"threshold"]
+  ];
+  for(const [sx,sy,sw,sh,scale,mode] of regions){
+   try{
+    const c=prepareBarcodeCanvas(barcodeCanvas,sx,sy,sw,sh,scale,mode);
+    const r=new ZXingBrowser.BrowserMultiFormatReader();
+    const fmts=getBarcodeFormats();
+    if(fmts) r.possibleFormats=fmts;
+    const result=r.decodeFromCanvas(c);
+    if(result&&result.getText){barcodeSuccess(result.getText());return true;}
+   }catch(e){barcodeLastError=e?.message||String(e)}
+  }
+ }catch(e){barcodeLastError=e?.message||String(e)}
+ return false;
+}
+
+
+async function barcodeDigitsOCR(){
+ if(barcodeScanBusy||barcodeOcrBusy||typeof Tesseract==="undefined"||!barcodeVideo.videoWidth)return false;
+ barcodeOcrBusy=true;
+ try{
+  const w=barcodeVideo.videoWidth,h=barcodeVideo.videoHeight;
+  const src=document.createElement("canvas");src.width=w;src.height=h;
+  const sc=src.getContext("2d",{willReadFrequently:true});
+  sc.drawImage(barcodeVideo,0,0,w,h);
+
+  // The printed number is below the bars. Use a tight crop and upscale it heavily.
+  // This is deliberately separate from the normal package OCR in Step 2.
+  const sx=Math.floor(w*.15), sy=Math.floor(h*.53), sw=Math.floor(w*.70), sh=Math.floor(h*.29);
+  const raw=document.createElement("canvas");raw.width=1800;raw.height=650;
+  const rctx=raw.getContext("2d",{willReadFrequently:true});
+  rctx.imageSmoothingEnabled=true;rctx.imageSmoothingQuality="high";
+  rctx.drawImage(src,sx,sy,sw,sh,0,0,raw.width,raw.height);
+
+  const bw=document.createElement("canvas");bw.width=1800;bw.height=650;
+  const bctx=bw.getContext("2d",{willReadFrequently:true});
+  bctx.drawImage(raw,0,0);
+  const img=bctx.getImageData(0,0,bw.width,bw.height),d=img.data;
+  for(let i=0;i<d.length;i+=4){
+   const y=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+   const v=y>145?255:0;
+   d[i]=d[i+1]=d[i+2]=v;
+  }
+  bctx.putImageData(img,0,0);
+
+  if(!barcodeOcrWorker) barcodeOcrWorker=await Tesseract.createWorker("eng");
+  const images=[raw,bw];
+  const candidates=[];
+  for(const image of images){
+   for(const psm of [6,7]){
+    const text=await recognizeWithWorker(barcodeOcrWorker,image,psm,"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-");
+    const cleaned=String(text||"").replace(/\s+/g," ").trim();
+    const compact=cleaned.replace(/[^A-Za-z0-9-]/g,"");
+    const numeric=compact.replace(/\D/g,"");
+    if(numeric.length>=8&&numeric.length<=14)candidates.push(numeric);
+    if(/^[A-Za-z0-9-]{8,20}$/.test(compact))candidates.push(compact);
+   }
+  }
+
+  // Prefer the longest clean numeric candidate. For the barcode in the user's
+  // screenshot this recovers 1001972587 even when one OCR pass misses a digit.
+  const numericCandidates=candidates.filter(x=>/^\d{8,14}$/.test(x));
+  const candidate=(numericCandidates.sort((a,b)=>b.length-a.length)[0])||candidates.sort((a,b)=>b.length-a.length)[0]||"";
+  if(candidate){barcodeSuccess(candidate);return true;}
+  return false;
+ }catch(e){
+  console.debug("Barcode OCR fallback failed",e);
+  return false;
+ }finally{barcodeOcrBusy=false;}
+}
+
+async function startBarcodeCamera(){
+ if(!navigator.mediaDevices?.getUserMedia){
+  setStatus("barcodeStatus","Camera unavailable. Open the GitHub Pages site over HTTPS and allow camera access.",false);return;
+ }
+ stopBarcodeCamera();
+ barcodeScanBusy=false;
+ try{
+  // Laptop/desktop: front/user-facing camera.
+  // Mobile/tablet: rear/environment camera.
+  const isMobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||"");
+  const facing=isMobile ? {ideal:"environment"} : {ideal:"user"};
+  barcodeStream=await navigator.mediaDevices.getUserMedia({
+   video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30,max:30}},audio:false
+  });
+  barcodeVideo.srcObject=barcodeStream;
+  await barcodeVideo.play();
+  await applyCameraOptimization();
+  setStatus("barcodeStatus","Barcode camera ready — hold the barcode inside the white box. Keep it close, flat and steady…",true);
+
+  // Preferred path: use the already-open camera stream and decode it continuously.
+  if(window.ZXingBrowser){
+   barcodeReader=new ZXingBrowser.BrowserMultiFormatReader();
+   const fmts=getBarcodeFormats();
+   if(fmts) barcodeReader.possibleFormats=fmts;
+   try{
+    barcodeControls=await barcodeReader.decodeFromVideoElement(barcodeVideo,(result,error)=>{
+     if(result&&result.getText){barcodeSuccess(result.getText());}
+    });
+   }catch(e){
+    console.warn("ZXing video-element scan failed; using frame fallback",e);
+   }
+  }
+
+  // Independent frame fallback. It crops/upscales the scan box and tries several
+  // preprocessing variants, which is much more tolerant of small webcam barcodes.
+  barcodeTimer=setInterval(async()=>{
+   if(barcodeScanBusy)return;
+   await decodeBarcodeFrame();
+  },450);
+
+  // Native BarcodeDetector is an additional decoder where supported.
+  if("BarcodeDetector" in window){
+   try{
+    detector=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128","code_39","code_93","itf","codabar","qr_code","data_matrix"]});
+    nativeBarcodeTimer=setInterval(async()=>{
+     if(barcodeScanBusy||!detector||!barcodeVideo.videoWidth)return;
+     try{
+      const codes=await detector.detect(barcodeVideo);
+      if(codes.length&&codes[0].rawValue){barcodeSuccess(codes[0].rawValue);clearInterval(nativeBarcodeTimer);nativeBarcodeTimer=null;}
+     }catch(e){}
+    },500);
+   }catch(e){console.debug("BarcodeDetector unavailable",e)}
+  }
+  // Last-resort fallback: read the printed digits underneath the bars with OCR.
+  // This is especially useful with low-resolution laptop webcams where the bars
+  // are visible but too small for a pure barcode decoder.
+  barcodeOcrTimer=setTimeout(async()=>{
+   barcodeOcrTimer=null;
+   if(!barcodeScanBusy){
+    const ok=await barcodeDigitsOCR();
+    if(!ok&&!barcodeScanBusy){
+     setStatus("barcodeStatus","Still scanning… keep the barcode close, flat and fully inside the white box.",true);
+    }
+   }
+  },3500);
+ }catch(e){
+  setStatus("barcodeStatus","Camera/Barcode error: "+e.message,false);
+ }
+}
+
+async function captureAndScanBarcode(){
+ if(barcodeScanBusy)return;
+ if(!barcodeVideo.videoWidth){setStatus("barcodeStatus","Camera is not ready yet. Please wait a moment.",false);return;}
+ setStatus("barcodeStatus","Capturing barcode frame…",false);
+ let ok=await decodeBarcodeFrame();
+ if(!ok&&!barcodeScanBusy) ok=await barcodeDigitsOCR();
+ if(!ok&&!barcodeScanBusy){
+  setStatus("barcodeStatus","Could not decode this frame. Move the barcode closer, keep all bars inside the box, avoid glare, and try again.",false);
+ }
+}
+
+async function openDetailsCamera(){
+ hideAll();detailScanner.classList.remove("hidden");
+ setStatus("detailStatus","Starting front camera for product details…",false);
+ try{
+  detailStream=await navigator.mediaDevices.getUserMedia({
+   video:{facingMode:{ideal:"user"},width:{ideal:1920},height:{ideal:1080}},audio:false
+  });
+  detailVideo.srcObject=detailStream;await detailVideo.play();
+  setStatus("detailStatus","Ready. Put MRP/MFD/EXP text inside the box using the front-facing laptop camera.",true);
+ }catch(e){setStatus("detailStatus","Camera error: "+e.message,false)}
+}
+
+function captureImage(){
+ const w=detailVideo.videoWidth,h=detailVideo.videoHeight;
+ if(!w||!h) throw new Error("Camera frame is not ready.");
+ captureCanvas.width=w;captureCanvas.height=h;
+ const ctx=captureCanvas.getContext("2d",{willReadFrequently:true});
+ ctx.drawImage(detailVideo,0,0,w,h);
+ return captureCanvas.toDataURL("image/jpeg",0.95);
+}
+
+/*
+ Improved OCR pipeline:
+ - Crops the same area shown by the dashed OCR box.
+ - Upscales the crop.
+ - Creates grayscale + contrast/threshold versions.
+ - Runs multiple Tesseract page-segmentation modes.
+ Tesseract.js documentation notes that upscaling can improve OCR,
+ and different PSM modes are useful for small/region text.
+*/
+function makeOCRImages(dataUrl){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();
+  img.onload=()=>{
+   const cropX=Math.floor(img.width*0.06);
+   const cropY=Math.floor(img.height*0.20);
+   const cropW=Math.floor(img.width*0.88);
+   const cropH=Math.floor(img.height*0.60);
+
+   const scale=2.5;
+   const cw=Math.max(900,Math.floor(cropW*scale));
+   const ch=Math.max(600,Math.floor(cropH*scale));
+
+   const canvas=document.createElement("canvas");
+   canvas.width=cw;canvas.height=ch;
+   const ctx=canvas.getContext("2d",{willReadFrequently:true});
+   ctx.imageSmoothingEnabled=true;
+   ctx.imageSmoothingQuality="high";
+   ctx.drawImage(img,cropX,cropY,cropW,cropH,0,0,cw,ch);
+
+   const original=canvas.toDataURL("image/jpeg",0.95);
+
+   const gray=document.createElement("canvas");
+   gray.width=cw;gray.height=ch;
+   const g=gray.getContext("2d",{willReadFrequently:true});
+   g.drawImage(canvas,0,0);
+   const pixels=g.getImageData(0,0,cw,ch);
+   const d=pixels.data;
+   for(let i=0;i<d.length;i+=4){
+    const lum=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    // contrast enhancement around mid-gray
+    let v=(lum-128)*1.65+128;
+    v=Math.max(0,Math.min(255,v));
+    d[i]=d[i+1]=d[i+2]=v;
+   }
+   g.putImageData(pixels,0,0);
+   const contrast=gray.toDataURL("image/png");
+
+   const bw=document.createElement("canvas");
+   bw.width=cw;bw.height=ch;
+   const b=bw.getContext("2d",{willReadFrequently:true});
+   b.drawImage(gray,0,0);
+   const bp=b.getImageData(0,0,cw,ch);
+   const bd=bp.data;
+   // adaptive-ish local threshold using a small neighborhood average
+   // with a simple global fallback, suitable for browser-only processing.
+   for(let i=0;i<bd.length;i+=4){
+    const v=bd[i];
+    const out=v>165?255:(v<90?0:(v>128?255:0));
+    bd[i]=bd[i+1]=bd[i+2]=out;
+   }
+   b.putImageData(bp,0,0);
+   const binary=bw.toDataURL("image/png");
+
+   resolve([original,contrast,binary]);
+  };
+  img.onerror=()=>reject(new Error("Could not prepare captured image."));
+  img.src=dataUrl;
+ });
+}
+
+function cleanOCRText(text){
+ return String(text||"")
+  .replace(/\r/g,"")
+  .replace(/[“”]/g,'"')
+  .replace(/[’]/g,"'")
+  .replace(/[|]/g,"I")
+  .replace(/[₹]/g," Rs ")
+  .replace(/\bM\s*\.?\s*R\s*\.?\s*P\s*\.?\b/gi,"MRP")
+  .replace(/\bM\s*\.?\s*F\s*[GD]\s*\.?\b/gi,"MFD")
+  .replace(/\bE\s*\.?\s*X\s*\.?\s*P\s*\.?\b/gi,"EXP")
+  .replace(/[ \t]+/g," ")
+  .replace(/\n[ \t]+/g,"\n")
+  .trim();
+}
+
+function numberFromText(x){
+ let v=String(x||"").replace(/[OoQ]/g,"0").replace(/[Il]/g,"1");
+ v=v.replace(/[,]/g,".");
+ const m=v.match(/\d+(?:\.\d{1,2})?/);
+ return m?m[0]:"";
+}
+
+function findMoney(text){
+ const t=cleanOCRText(text);
+ const lines=t.split(/\n+/);
+
+ // Prefer money on the same line as an MRP label.
+ for(const line of lines){
+  if(/\bM\s*R\s*P\b|MAX(?:IMUM)?\s*RETAIL\s*PRICE/i.test(line)){
+   const after=line.replace(/.*?(?:M\s*R\s*P|MAX(?:IMUM)?\s*RETAIL\s*PRICE)/i,"");
+   const m=after.match(/(?:Rs\.?|INR)?\s*[.:=-]?\s*(?:₹\s*)?([0-9OoQIl]{1,6}(?:[.,][0-9OoQIl]{1,2})?)/i);
+   if(m){
+    const n=numberFromText(m[1]);
+    if(n)return n;
+   }
+   // Handles OCR inserting spaces: "MRP 1 20.00"
+   const loose=after.match(/([0-9OoQIl])\s*([0-9OoQIl]{1,5})(?:[.,]([0-9OoQIl]{1,2}))?/);
+   if(loose){
+    const joined=(loose[1]+loose[2]).replace(/[OoQ]/g,"0").replace(/[Il]/g,"1");
+    const dec=loose[3]?("." + loose[3].replace(/[OoQ]/g,"0").replace(/[Il]/g,"1")):"";
+    return joined+dec;
+   }
+  }
+ }
+
+ // Common Indian packaging formats anywhere in OCR.
+ const patterns=[
+  /(?:MRP|M\s*R\s*P)[^0-9OoQIl]{0,30}(?:₹|Rs\.?|INR)?\s*([0-9OoQIl]{1,6}(?:[.,][0-9OoQIl]{1,2})?)/i,
+  /(?:MAX(?:IMUM)?\s*RETAIL\s*PRICE)[^0-9OoQIl]{0,30}(?:₹|Rs\.?|INR)?\s*([0-9OoQIl]{1,6}(?:[.,][0-9OoQIl]{1,2})?)/i,
+  /(?:₹|Rs\.?|INR)\s*([0-9OoQIl]{1,6}(?:[.,][0-9OoQIl]{1,2})?)/i
+ ];
+ for(const p of patterns){
+  const m=t.match(p);
+  if(m){
+   const n=numberFromText(m[1]);
+   if(n)return n;
+  }
+ }
+ return "";
+}
+
+function normalizeDateCandidate(v){
+ let x=String(v||"").trim().replace(/[OoQ]/g,"0").replace(/[Il]/g,"1");
+ x=x.replace(/\s+/g,"");
+ x=x.replace(/[.]/g,"/");
+ return x;
+}
+
+function findDateByContext(labels,text){
+ const t=cleanOCRText(text);
+ const lines=t.split(/\n+/);
+ const datePatterns=[
+  /\b([0-3]?\d[\/-][01]?\d[\/-](?:20)?\d{2})\b/,
+  /\b([01]?\d[\/-](?:20)?\d{2})\b/,
+  /\b((?:20)\d{2}[\/-][01]?\d)\b/
+ ];
+
+ for(const line of lines){
+  if(new RegExp(labels,"i").test(line)){
+   for(const p of datePatterns){
+    const m=line.match(p);
+    if(m)return normalizeDateCandidate(m[1]);
+   }
+  }
+ }
+
+ // OCR sometimes puts the label and date on adjacent lines.
+ const all=lines.join("\n");
+ const re=new RegExp("(?:^|\\n)\\s*(?:"+labels+")[^\\n]{0,50}\\n?[^\\n]{0,20}?(\\d{1,2}[\\/-]\\d{1,2}[\\/-]\\d{2,4}|\\d{1,2}[\\/-]\\d{2,4}|\\d{4}[\\/-]\\d{1,2})","i");
+ const m=all.match(re);
+ return m?normalizeDateCandidate(m[1]):"";
+}
+
+async function recognizeWithWorker(worker,image,psm,whitelist){
+ await worker.setParameters({
+  tessedit_pageseg_mode:String(psm),
+  preserve_interword_spaces:"1",
+  user_defined_dpi:"300",
+  ...(whitelist?{tessedit_char_whitelist:whitelist}:{})
+ });
+ const result=await worker.recognize(image);
+ return result?.data?.text||"";
+}
+
+async function runOCR(){
+ if(typeof Tesseract==="undefined"){
+  alert("OCR library did not load. Check your internet connection and reload the page.");
+  return;
+ }
+ stopDetailCamera();
+ hideAll();ocrProgress.classList.remove("hidden");
+
+ const bar=document.getElementById("ocrBar");
+ const status=document.getElementById("ocrStatus");
+
+ try{
+  status.textContent="Preparing image…";
+  bar.style.width="5%";
+
+  const images=await makeOCRImages(captureImageData);
+  const worker=await Tesseract.createWorker("eng");
+
+  let combined=[];
+  const total=images.length*2;
+  let done=0;
+
+  for(const image of images){
+   // PSM 6: uniform block, PSM 11: sparse text.
+   const a=await recognizeWithWorker(worker,image,6,"");
+   combined.push(a);
+   done++;bar.style.width=Math.round(done/total*90)+"%";
+   status.textContent="Reading package text… "+Math.round(done/total*100)+"%";
+
+   const b=await recognizeWithWorker(worker,image,11,"");
+   combined.push(b);
+   done++;bar.style.width=Math.round(done/total*90)+"%";
+  }
+
+  await worker.terminate();
+
+  // Add a digits-focused pass on the contrast image to help MRP/date numbers.
+  const numericWorker=await Tesseract.createWorker("eng");
+  const numeric=await recognizeWithWorker(
+   numericWorker,images[1],7,
+   "0123456789./:-MRPFDEXPGmfdxpeRsINR "
+  );
+  await numericWorker.terminate();
+
+  combined.push(numeric);
+  ocrText=cleanOCRText(combined.filter(Boolean).join("\n"));
+  bar.style.width="96%";
+  status.textContent="OCR completed. Extracting MRP, MFD and EXP…";
+
+  parseOCR(ocrText);
+  bar.style.width="100%";
+ }catch(e){
+  ocrText="";
+  openProduct();
+  document.getElementById("ocrResultStatus").textContent=
+   "OCR failed. Please enter MRP/MFD/EXP manually. Error: "+(e?.message||e);
+  bar.style.width="100%";
+ }
+}
+
+let captureImageData="";
+document.getElementById("captureDetails").onclick=async()=>{
+ try{
+  captureImageData=captureImage();
+  await runOCR();
+ }catch(e){
+  stopDetailCamera();openProduct();
+  document.getElementById("ocrResultStatus").textContent=
+   "Could not capture image. Please enter details manually.";
+ }
+};
+
+function parseOCR(raw){
+ const text=cleanOCRText(raw);
+ const mrp=findMoney(text);
+ const mfd=findDateByContext(
+  "MFD|MFG|MANUFACTURED|MANUFACTURING|PKD|PACKED|DATE OF MFG|DATE OF MANUFACTURE",
+  text
+ );
+ const exp=findDateByContext(
+  "EXP|EXPIRY|EXPIRES|BEST BEFORE|USE BY",
+  text
+ );
+
+ openProduct();
+ document.getElementById("ocrText").value=text;
+
+ if(mrp)document.getElementById("mrp").value=mrp;
+ if(mfd)document.getElementById("mfd").value=mfd;
+ if(exp)document.getElementById("exp").value=exp;
+
+ const missing=[];
+ if(!mrp)missing.push("MRP");
+ if(!mfd)missing.push("MFD");
+ if(!exp)missing.push("EXP");
+
+ document.getElementById("ocrResultStatus").textContent=
+   missing.length
+   ? "OCR completed. Please verify the fields; not detected: "+missing.join(", ")+". Raw OCR text is shown below."
+   : "OCR completed using multiple passes. Please verify the extracted MRP, MFD and EXP before saving.";
+}
+
+function openProduct(){
+ hideAll();product.classList.remove("hidden");home.classList.add("hidden");
+ document.getElementById("barcodeLabel").textContent=currentBarcode;
+ ["name","brand","category","mrp","sellingPrice","mfd","exp"].forEach(id=>document.getElementById(id).value="");
+ document.getElementById("qty").value=1;
+ if(ocrText)document.getElementById("ocrText").value=ocrText;
+ lookupProduct(currentBarcode);
+}
+
+async function lookupProduct(code){
+ try{
+  const r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(code)+".json");
+  if(!r.ok)return;
+  const d=await apiJsonResponse(r);if(d.status!==1)return;
+  const p=d.product||{};
+  document.getElementById("name").value=p.product_name||"";
+  document.getElementById("brand").value=p.brands||"";
+  document.getElementById("category").value=(p.categories_tags?.[0]||"").replace(/^en:/,"").replaceAll("-"," ")||p.categories||"";
+ }catch(e){}
+}
+
+function val(id){return document.getElementById(id).value.trim()}
+async function save(){
+ const st=document.getElementById("saveStatus"),btn=document.getElementById("save");
+ const a=getAuth(); if(!a){showLogin();return}
+ const payload={
+  action:"saveProduct",shopId:a.shopId,shopName:a.shopName,userId:a.userId,
+  barcode:currentBarcode,name:val("name"),brand:val("brand"),category:val("category"),
+  mrp:val("mrp"),sellingPrice:val("sellingPrice"),manufacturingDate:val("mfd"),
+  expiryDate:val("exp"),quantity:Math.max(1,Number(val("qty")||1)),
+  barcodeSource,detailsSource,ocrText:val("ocrText")
+ };
+ if(!payload.barcode){st.textContent="Barcode missing.";st.className="status bad";st.classList.remove("hidden");return}
+ btn.disabled=true;btn.textContent="Saving…";
+ try{
+  const r=await apiPost(payload);
+  if(!r.ok)throw new Error(r.error||"Save failed");
+  history.unshift({barcode:payload.barcode,name:payload.name,mrp:payload.mrp,mfd:payload.manufacturingDate,exp:payload.exp,time:new Date().toLocaleString()});
+  history=history.slice(0,10);localStorage.setItem("barcodeHistoryV8",JSON.stringify(history));renderHistory();
+  loadDashboard();
+  st.textContent="Saved to your shop.";st.className="status ok";st.classList.remove("hidden");
+  if(r.rfidRequired){ hideAll(); document.getElementById("rfidAssignCard").classList.remove("hidden"); document.getElementById("rfidAssignProduct").textContent=payload.name||payload.barcode; waitForRfidAssignment(); }
+ }catch(e){
+  st.textContent="Save failed: "+e.message;st.className="status bad";st.classList.remove("hidden");
+ }finally{btn.disabled=false;btn.textContent="💾 Save to Google Sheet"}
+}
+
+function renderHistory(){
+ document.getElementById("history").innerHTML=history.length?history.map(x=>
+ `<div class="item"><strong>${esc(x.name||"Unnamed product")}</strong><div class="muted">${esc(x.barcode)} · ${esc(x.time)}</div><div class="price">${x.mrp?"MRP ₹"+esc(x.mrp):""}</div><div class="muted">${x.mfd?"MFD: "+esc(x.mfd):""}${x.exp?" · EXP: "+esc(x.exp):""}</div></div>`
+ ).join(""):'<div class="muted">No scans yet.</div>';
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+document.getElementById("start").onclick=async()=>{
+ home.classList.add("hidden");hideAll();barcodeScanner.classList.remove("hidden");
+ currentBarcode="";barcodeSource="camera";detailsSource="ocr";ocrText="";await startBarcodeCamera();
+};
+document.getElementById("captureBarcode").onclick=captureAndScanBarcode;
+document.getElementById("closeBarcode").onclick=()=>{stopAll();hideAll();home.classList.remove("hidden")};
+document.getElementById("manual").onclick=()=>{
+ home.classList.add("hidden");hideAll();manualCard.classList.remove("hidden");document.getElementById("barcodeInput").focus();
+};
+document.getElementById("cancelManual").onclick=()=>{hideAll();home.classList.remove("hidden")};
+document.getElementById("continueManual").onclick=async()=>{
+ const b=val("barcodeInput");if(!b)return;currentBarcode=b;barcodeSource="manual";detailsSource="ocr";await openDetailsCamera();
+};
+document.getElementById("barcodeInput").onkeydown=e=>{if(e.key==="Enter")document.getElementById("continueManual").click()};
+document.getElementById("skipDetails").onclick=()=>{stopDetailCamera();detailsSource="manual";ocrText="";openProduct()};
+document.getElementById("save").onclick=save;
+document.getElementById("backDashboard").onclick=()=>{
+ stopAll();stopRfidPolling();hideAll();document.getElementById("dashboard").classList.remove("hidden");
+ document.getElementById("productListCard").classList.remove("hidden");loadDashboard();
+};
+document.getElementById("scanAgain").onclick=async()=>{
+ stopAll();stopRfidPolling();hideAll();document.getElementById("dashboard").classList.add("hidden");
+ document.getElementById("productListCard").classList.add("hidden");
+ barcodeScanner.classList.remove("hidden");currentBarcode="";ocrText="";await startBarcodeCamera()
+};
+document.getElementById("saveExitCount").onclick=saveExitCount;
+document.getElementById("payExitBtn").onclick=payExitEvents;
+document.getElementById("rfidDoneBtn").onclick=()=>{stopRfidPolling();showApp()};
+addEventListener("beforeunload",()=>{stopAll();stopRfidPolling();stopExitPolling()});
+renderHistory();
+</script>
+</body>
+</html>
